@@ -25,8 +25,19 @@
 ## Commands
 - `npm run db:reset`: wipe the local DB, migrate and seed (~5 min)
 - `npm run db:migrate`, `npm run db:seed`, `npm run dev`, `npm run build`, `npm run lint`
+- `npm run samples -- --dealer sunrise --date 2026-10-30 [--break]`: write fake Power BI exports to `samples/`
+- `npm test`: importer tests (generate the sunrise and broken pacific-coast samples first)
+
+## Daily import (step 2)
+- Flow: upload API stores files (`src/lib/storage.ts`) → pg-boss job `import-check` (read, recognize, reconcile)
+  → if no errors, save; otherwise status `needs_review` until "Save anyway" (`import-save` job) or "Cancel".
+- Code: `src/lib/imports/` (`parse.ts` reads/recognizes, `reconcile.ts` checks, `merge.ts` combines files, `save.ts` writes).
+- MTD "Activations" = Total Connected Gross Adds (wireless + Home Internet), verified against real files.
+  `wireless_gross_adds` is the wireless-only number.
+- Saving a date deletes and rewrites that date (no duplicates), then refreshes rollups for that date.
+- Employee IDs match case-insensitively. Unknown stores are added under the company level (`auto_added`).
 
 ## Roadmap
-v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation (3) screens (4) hide/merge settings
+v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens (4) hide/merge settings
 (5) logins and roles (6) speed test at 1,000 stores.
 Later: schedule planner (labor budget and lunch rules), commission calculator, email/Drive imports, billing per store.

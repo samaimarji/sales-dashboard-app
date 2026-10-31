@@ -165,7 +165,7 @@ const DEALERS: DealerConfig[] = [
 type Counters = Record<string, number>;
 const COUNTER_KEYS = `acts upg chi_ga chi_orders chi_checked chi_eligible chi_credit chi_adv plan35 plan40 plan50 plan60s
 simply watch byod aal multi maxatt port_in port_out bill_pay cust_assist plan_up30 plan_down30 fs_ga fs_upg ap_opp
-ap_enr pr_opp pr_add up_opp up_add hs_opp hs_add ild_opp ild_add acc_rev ppp_links bread prog act_fees act_disc
+ap_enr pr_opp pr_add up_opp up_add hs_opp hs_add ild_opp ild_add acc_rev ppp_acc ppp_links ppp_apps bread_sub bread prog act_fees act_disc
 act_disc_rev act_waived act_waived_rev act_collected upg_fees upg_disc upg_disc_rev upg_waived upg_waived_rev
 wtr_n wtr_sum`.split(/\s+/);
 const emptyCounters = (): Counters => Object.fromEntries(COUNTER_KEYS.map((k) => [k, 0]));
@@ -248,8 +248,12 @@ function simulateDay(r: RepAtStore, s: StoreSim, dayFactor: number) {
   add("acc_rev", Math.round(acc * 100) / 100);
   const links = poisson(lam * 0.15);
   add("ppp_links", links);
-  add("bread", binomial(links, 0.3));
+  const breadSub = binomial(links, 0.5);
+  add("ppp_apps", binomial(links, 0.8));
+  add("bread_sub", breadSub);
+  add("bread", binomial(breadSub, 0.6));
   add("prog", binomial(links, 0.25));
+  add("ppp_acc", Math.round(acc * between(0, 0.15) * 100) / 100);
   // fees ($35 activation / $35 upgrade; discounted = $15 off, waived = $35 off)
   const actWaived = binomial(acts, rep.waive);
   const actDisc = binomial(acts - actWaived, 0.15);
@@ -291,6 +295,14 @@ function simulateDay(r: RepAtStore, s: StoreSim, dayFactor: number) {
 const r4 = (v: number) => Math.round(v * 10000) / 10000;
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
+/** KPIs that only exist on the store-level MTD report (no rep column in any file). */
+const STORE_ONLY = ["ppp_apps_submitted", "ppp_accessory_sales", "progressive_rebates", "bread_submitted", "bread_approved"];
+function repKpis(c: Counters) {
+  const m = toKpis(c);
+  for (const k of STORE_ONLY) delete m[k];
+  return m;
+}
+
 /** Turns counters into the KPI map exactly as the Power BI files would report it. */
 function toKpis(c: Counters): Record<string, number> {
   const out: Record<string, number> = {};
@@ -298,9 +310,9 @@ function toKpis(c: Counters): Record<string, number> {
     if (v !== undefined && Number.isFinite(v) && v !== 0) out[k] = v;
   };
   const pct = (n: number, d: number) => (d > 0 ? r4(n / d) : undefined);
-  out.activations = c.acts;
+  out.activations = c.acts + c.chi_ga; // TCGA, as on the MTD report
   out.upgrades = c.upg;
-  set("tcga", c.acts + c.chi_ga);
+  set("wireless_gross_adds", c.acts);
   set("accessory_revenue", r2(c.acc_rev));
   set("accessory_rev_per_opp", c.acts + c.upg > 0 ? r2(c.acc_rev / (c.acts + c.upg)) : undefined);
   set("port_in", c.port_in);
@@ -337,6 +349,11 @@ function toKpis(c: Counters): Record<string, number> {
   set("bread_leases", c.bread);
   set("progressive_leases", c.prog);
   set("ppp_attach_rate", pct(c.bread + c.prog, c.acts + c.upg));
+  set("ppp_apps_submitted", c.ppp_apps);
+  set("ppp_accessory_sales", r2(c.ppp_acc));
+  set("progressive_rebates", c.prog);
+  set("bread_submitted", c.bread_sub);
+  set("bread_approved", c.bread);
   set("activation_fees", c.act_fees);
   set("act_fees_discounted", c.act_disc);
   set("act_fees_discounted_rev", c.act_disc_rev);
@@ -513,7 +530,7 @@ async function seedDealer(cfg: DealerConfig, dealerIndex: number) {
     const res = await sql<{ id: number }[]>`insert into people ${sql(chunk)} returning id`;
     personIds.push(...res.map((r) => r.id));
   }
-  const aliasRows = people.map((p, i) => ({ dealer_id: dealerId, raw_name: `${p.display_name} - ${p.employee_code.slice(2)}`, person_id: personIds[i] }));
+  const aliasRows = people.map((p, i) => ({ dealer_id: dealerId, raw_name: `${p.display_name.toUpperCase()} - ${p.employee_code.toLowerCase()}`, person_id: personIds[i] }));
   for (let i = 0; i < aliasRows.length; i += 5000) await sql`insert into person_aliases ${sql(aliasRows.slice(i, i + 5000))}`;
 
   // --- simulation setup ---
@@ -567,19 +584,22 @@ async function seedDealer(cfg: DealerConfig, dealerIndex: number) {
   // --- goals (per store per month) and dealer-wide rate goals ---
   const dates = dateRange(START, END);
   const months = [...new Set(dates.map((d) => d.slice(0, 7) + "-01"))];
-  const goalRows: { dealer_id: number; org_unit_id: number; month: string; kpi_code: string; target: number; source: string }[] = [];
+  const goalRows: { dealer_id: number; org_unit_id: number; month: string; kpi_code: string; target: number; source: string; goal_set: string }[] = [];
+  const goal = (org_unit_id: number, month: string, kpi_code: string, target: number, source: string, goal_set = "dealer") =>
+    goalRows.push({ dealer_id: dealerId, org_unit_id, month, kpi_code, target, source, goal_set });
   for (const month of months) {
     for (const s of sims) {
       const expActs = 2.6 * s.traffic * 30;
       const a = Math.round(expActs * between(0.95, 1.15));
-      goalRows.push({ dealer_id: dealerId, org_unit_id: s.storeId, month, kpi_code: "activations", target: a, source: "import" });
-      goalRows.push({ dealer_id: dealerId, org_unit_id: s.storeId, month, kpi_code: "upgrades", target: Math.round(a * 0.22), source: "import" });
-      goalRows.push({ dealer_id: dealerId, org_unit_id: s.storeId, month, kpi_code: "tcga", target: Math.round(a * 1.06), source: "import" });
-      goalRows.push({ dealer_id: dealerId, org_unit_id: s.storeId, month, kpi_code: "accessory_revenue", target: Math.round(a * 1.22 * 22), source: "manual" });
-      goalRows.push({ dealer_id: dealerId, org_unit_id: s.storeId, month, kpi_code: "chi_gross_adds", target: Math.max(2, Math.round(a * 0.07)), source: "manual" });
+      goal(s.storeId, month, "activations", a, "import");
+      goal(s.storeId, month, "upgrades", Math.round(a * 0.22), "import");
+      goal(s.storeId, month, "accessory_revenue", Math.round(a * 1.22 * 22 / 100) * 100, "import");
+      goal(s.storeId, month, "chi_orders", Math.max(2, Math.round(a * 0.08)), "import");
+      goal(s.storeId, month, "activations", Math.round(a * between(0.85, 1.0)), "import", "cricket");
+      goal(s.storeId, month, "wireless_gross_adds", Math.round(a * between(0.8, 0.95)), "import", "cricket");
     }
     for (const [kpi, target] of [["autopay_rate", 0.75], ["protect_rate", 0.4], ["upgrade_plus_rate", 0.33], ["wtr", 0.85], ["act_fees_waived_rate", 0.08]] as const) {
-      goalRows.push({ dealer_id: dealerId, org_unit_id: root.id, month, kpi_code: kpi, target, source: "manual" });
+      goal(root.id, month, kpi, target, "manual");
     }
   }
   for (let i = 0; i < goalRows.length; i += 5000) await sql`insert into kpi_goals ${sql(goalRows.slice(i, i + 5000))}`;
@@ -614,7 +634,7 @@ async function seedDealer(cfg: DealerConfig, dealerIndex: number) {
         for (const r of s.reps) simulateDay(r, s, dayFactor);
         s.disconnects += poisson(s.bop * 0.0007);
         for (const r of s.reps) {
-          chunk += `${dealerId}\t${date}\t${s.storeId}\t${r.rep.personId}\t${JSON.stringify(toKpis(r.c))}\t${batchId}\n`;
+          chunk += `${dealerId}\t${date}\t${s.storeId}\t${r.rep.personId}\t${JSON.stringify(repKpis(r.c))}\t${batchId}\n`;
           repRowCount++;
         }
         storeLines.push(`${dealerId}\t${date}\t${s.storeId}\t${JSON.stringify(storeKpis(s, dom))}\t${batchId}\n`);
@@ -643,7 +663,7 @@ async function seedDealer(cfg: DealerConfig, dealerIndex: number) {
   const [report] = await sql<{ id: number }[]>`
     insert into saved_reports (dealer_id, owner_user_id, name, row_level, is_official)
     values (${dealerId}, null, 'Store KPI Report', 'store', true) returning id`;
-  const reportKpis = ["activations", "upgrades", "tcga", "accessory_revenue", "autopay_rate", "protect_rate", "upgrade_plus_rate", "chi_gross_adds", "wtr", "act_fees_waived_rate"];
+  const reportKpis = ["activations", "upgrades", "wireless_gross_adds", "accessory_revenue", "autopay_rate", "protect_rate", "upgrade_plus_rate", "chi_gross_adds", "wtr", "act_fees_waived_rate"];
   await sql`insert into saved_report_kpis ${sql(reportKpis.map((k, i) => ({ report_id: report.id, kpi_code: k, position: i })))}`;
 
   await sql`insert into audit_log (dealer_id, action, entity, details)

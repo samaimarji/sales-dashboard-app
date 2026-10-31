@@ -42,6 +42,9 @@ async function main() {
           sort = excluded.sort, description = excluded.description`;
     }
   });
+  const codes = KPI_CATALOG.map((k) => k.code);
+  const removed = await sql`delete from kpi_catalog where code <> all(${codes}) returning code`;
+  if (removed.length) console.log(`Removed KPIs no longer in the catalog: ${removed.map((r) => r.code).join(", ")}`);
   console.log(`KPI catalog synced (${KPI_CATALOG.length} KPIs).`);
   await sql.end();
 }

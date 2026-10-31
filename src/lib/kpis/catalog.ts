@@ -9,6 +9,9 @@
  *
  * `sources` records which file/column each value comes from; the importer (step 2)
  * uses this to map columns. Goals from the files land in kpi_goals, not here.
+ *
+ * Header names for the MTD report include the group row above the column row,
+ * e.g. "Accessories › Access", because names like "Goals" repeat in each group.
  */
 
 export type FileType = "mtd" | "rank" | "matrix" | "fees" | "retention" | "chi" | "features";
@@ -18,8 +21,11 @@ export type Agg = "sum" | "ratio" | "weighted_avg";
 export interface KpiSource {
   file: FileType;
   header: string;
-  /** "goal" columns are stored as monthly targets for this KPI. */
-  role?: "value" | "goal";
+  /**
+   * "goal": the dealer's monthly goal for this KPI (e.g. MTD report goals).
+   * "target": Cricket's performance target (e.g. rank export "Perf Target").
+   */
+  role?: "value" | "goal" | "target";
 }
 
 export interface Kpi {
@@ -56,19 +62,22 @@ function wavg(code: string, label: string, category: string, weightKpi: string, 
 export const KPI_CATALOG: Kpi[] = [
   // --- Sales -----------------------------------------------------------------
   count("activations", "Activations", "Sales", [
-    src("mtd", "Activations"), src("mtd", "Goal", "goal"),
-    src("rank", "Wireless Gross Adds"), src("rank", "Wireless Gross Adds Perf Target", "goal"),
+    src("mtd", "Activations › Activations"), src("mtd", "Activations › Goal", "goal"),
+    src("rank", "Total Connected Gross Adds"), src("rank", "TCGA Perf Target", "target"),
+    src("matrix", "Total Connected Gross Adds"),
+  ], { description: "Total Connected Gross Adds: wireless lines + Home Internet. Same as 'Activations' on the MTD report." }),
+  count("wireless_gross_adds", "Wireless Gross Adds", "Sales", [
+    src("rank", "Wireless Gross Adds"), src("rank", "Wireless Gross Adds Perf Target", "target"),
     src("matrix", "Wireless Gross Adds"),
-  ], { description: "Wireless gross adds (new lines)." }),
+  ], { description: "New wireless lines only (no Home Internet)." }),
   count("upgrades", "Upgrades", "Sales", [
-    src("mtd", "Upgrades"), src("mtd", "Goals", "goal"),
+    src("mtd", "Upgrades › Upgrades"), src("mtd", "Upgrades › Goals", "goal"),
     src("rank", "Device Upgrades"), src("matrix", "Device Upgrades"),
   ]),
-  count("tcga", "Total Connected Gross Adds", "Sales", [
-    src("rank", "Total Connected Gross Adds"), src("rank", "TCGA Perf Target", "goal"),
-    src("matrix", "Total Connected Gross Adds"),
-  ], { description: "Wireless + Home Internet gross adds." }),
-  money("accessory_revenue", "Accessory Revenue", "Sales", [src("matrix", "Accessory Revenue")]),
+  money("accessory_revenue", "Accessory Revenue", "Sales", [
+    src("mtd", "Accessories › Access"), src("mtd", "Accessories › Goals", "goal"),
+    src("matrix", "Accessory Revenue"),
+  ]),
   wavg("accessory_rev_per_opp", "Accessory Revenue per Opportunity", "Sales", "activations",
     [src("matrix", "Accessory Revenue per Opportunity")], { unit: "currency" }),
   count("net_adds", "Net Adds", "Sales", [src("rank", "Net Adds"), src("retention", "Net Adds")]),
@@ -79,7 +88,9 @@ export const KPI_CATALOG: Kpi[] = [
   count("port_in", "Port In", "Sales", [src("matrix", "Port In")]),
   count("port_out", "Port Out", "Sales", [src("matrix", "Port Out")], { higherIsBetter: false }),
   ratio("port_ratio", "Port Ratio", "Sales", "port_in", "port_out", [src("matrix", "Port Ratio")], { unit: "decimal" }),
-  count("bill_payments", "Bill Payments", "Sales", [src("matrix", "Bill Payment"), src("fees", "Bill Payment")]),
+  count("bill_payments", "Bill Payments", "Sales", [
+    src("mtd", "PPP & Payment › Cricket Bill Payment"), src("matrix", "Bill Payment"), src("fees", "Bill Payment"),
+  ]),
   count("customer_assist_fees", "Full Customer Assistance Fees", "Sales", [src("matrix", "Full Customer Assistance Fees")]),
   count("plan_upgrades_30d", "Plan Upgrades within 30 Days", "Sales", [src("matrix", "Plan Upgrades within 30 days of Activation Date")]),
   count("plan_downgrades_30d", "Plan Downgrades within 30 Days", "Sales", [src("matrix", "Plan Downgrades within 30 days of Activation Date")],
@@ -90,11 +101,11 @@ export const KPI_CATALOG: Kpi[] = [
     { description: "Customer survey score." }),
 
   // --- Activation mix ------------------------------------------------------------
-  wavg("byod_pct", "BYOD Activation %", "Activation Mix", "activations",
+  wavg("byod_pct", "BYOD Activation %", "Activation Mix", "wireless_gross_adds",
     [src("rank", "BYOD Activation %"), src("matrix", "BYOD Activation %")]),
-  wavg("add_a_line_pct", "Add-a-Line Activations %", "Activation Mix", "activations",
+  wavg("add_a_line_pct", "Add-a-Line Activations %", "Activation Mix", "wireless_gross_adds",
     [src("rank", "Add-a-Line Activations %"), src("matrix", "Add-a-Line Activations %")]),
-  wavg("multiline_pct", "Multiline Activations %", "Activation Mix", "activations",
+  wavg("multiline_pct", "Multiline Activations %", "Activation Mix", "wireless_gross_adds",
     [src("rank", "Multiline Activations %"), src("matrix", "Multiline Activations %"), src("retention", "Multiline Activations %")]),
   count("plan_35", "$35 Sensible Activations", "Activation Mix", [src("rank", "$35 Sensible Activations"), src("matrix", "$35 Sensible Activations")]),
   count("plan_40", "$40 Select Activations", "Activation Mix", [src("rank", "$40 Select Activations"), src("matrix", "$40 Select Activations")]),
@@ -104,11 +115,11 @@ export const KPI_CATALOG: Kpi[] = [
   count("plan_60_legacy", "$60 Legacy Unlimited Activations", "Activation Mix",
     [src("rank", "$60 Legacy Unlimited Activations"), src("matrix", "$60 Legacy Unlimited Activations")]),
   count("plan_60_supreme", "$60 Supreme Activations", "Activation Mix", [src("rank", "$60 Supreme Activations"), src("matrix", "$60 Supreme Activations")]),
-  wavg("plan_60_plus_mix", "$60+ Rate Plan Mix", "Activation Mix", "activations",
+  wavg("plan_60_plus_mix", "$60+ Rate Plan Mix", "Activation Mix", "wireless_gross_adds",
     [src("rank", "$60+ Rate Plan Mix"), src("matrix", "$60+ Rate Plan Mix")]),
   count("simply_data", "Simply Data Activations", "Activation Mix", [src("rank", "Simply Data Activations"), src("matrix", "Simply Data Activations")]),
   count("watch_activations", "Watch Activations", "Activation Mix", [src("rank", "Watch Activations"), src("matrix", "Watch Activations")]),
-  wavg("max_attach_rate", "Max Activation Attach Rate", "Activation Mix", "activations",
+  wavg("max_attach_rate", "Max Activation Attach Rate", "Activation Mix", "wireless_gross_adds",
     [src("rank", "Max Activation Attach Rate"), src("matrix", "Max Activation Attach Rate")]),
 
   // --- Features (attach rates) ---------------------------------------------------
@@ -122,11 +133,11 @@ export const KPI_CATALOG: Kpi[] = [
   ratio("protect_rate", "Protect Attach Rate (All-In)", "Features", "protect_adds", "protect_opps",
     [src("features", "Protect Attach Rate (All-In)"), src("matrix", "Protect Attach Rate (All-In)")]),
   count("upgrade_plus_opps", "Upgrade Plus Opportunities", "Features",
-    [src("mtd", "Upgrade Plus Opportunities"), src("features", "Upgrade Plus Opportunities"), src("matrix", "Upgrade Plus Opportunities")]),
+    [src("mtd", "Upgrade Plus Opportunities › Upgrade Plus Opportunities"), src("features", "Upgrade Plus Opportunities"), src("matrix", "Upgrade Plus Opportunities")]),
   count("upgrade_plus_adds", "Upgrade Plus Adds", "Features",
-    [src("mtd", "Upgrade Plus Adds"), src("features", "Upgrade Plus Adds"), src("matrix", "Upgrade Plus Adds")]),
+    [src("mtd", "Upgrade Plus Opportunities › Upgrade Plus Adds"), src("features", "Upgrade Plus Adds"), src("matrix", "Upgrade Plus Adds")]),
   ratio("upgrade_plus_rate", "Upgrade Plus Attach Rate", "Features", "upgrade_plus_adds", "upgrade_plus_opps",
-    [src("mtd", "Upgrade Plus Attach Rate"), src("features", "Upgrade Plus Attach Rate"), src("matrix", "Upgrade Plus Attach Rate")]),
+    [src("mtd", "Upgrade Plus Opportunities › Upgrade Plus Attach Rate"), src("features", "Upgrade Plus Attach Rate"), src("matrix", "Upgrade Plus Attach Rate")]),
   count("hotspot_opps", "Hotspot Opportunities", "Features", [src("features", "Hotspot Opportunities")]),
   count("hotspot_adds", "Hotspot Adds", "Features", [src("features", "Hotspot Adds")]),
   ratio("hotspot_rate", "Hotspot Attach Rate", "Features", "hotspot_adds", "hotspot_opps", [src("features", "Hotspot Attach Rate")]),
@@ -136,6 +147,11 @@ export const KPI_CATALOG: Kpi[] = [
 
   // --- PPP / financing -----------------------------------------------------------
   count("ppp_links_sent", "PPP Application Links Sent", "PPP & Financing", [src("matrix", "Total PPP Application Links Sent")]),
+  count("ppp_apps_submitted", "PPP Applications Submitted", "PPP & Financing", [src("mtd", "PPP & Payment › PPP Applications Submitted")]),
+  money("ppp_accessory_sales", "PPP Accessories Sales", "PPP & Financing", [src("mtd", "Accessories › PPP Accessories Sales")]),
+  count("progressive_rebates", "Progressive Lease Vendor Rebate", "PPP & Financing", [src("mtd", "PPP & Payment › Progressive Lease Vendor Rebate")]),
+  count("bread_submitted", "Bread Applications Submitted", "PPP & Financing", [src("mtd", "Bread Financial › Submitted")]),
+  count("bread_approved", "Bread Applications Approved", "PPP & Financing", [src("mtd", "Bread Financial › Approved")]),
   count("bread_leases", "Bread Leases Funded", "PPP & Financing", [src("matrix", "Bread Leases Funded")]),
   count("progressive_leases", "Progressive Leases Funded", "PPP & Financing", [src("matrix", "Progressive Leases Funded")]),
   wavg("ppp_attach_rate", "Total PPP Attach Rate", "PPP & Financing", "activations", [src("matrix", "Total PPP Attach Rate")]),
@@ -173,17 +189,22 @@ export const KPI_CATALOG: Kpi[] = [
     [src("rank", "Churn Rate"), src("retention", "Churn Monthly")], { higherIsBetter: false }),
   wavg("retention_rate", "Retention Rate", "Retention", "bop_subscribers", [src("rank", "Retention Rate (CCS)")]),
   count("eop_suspended", "EOP Suspended", "Retention", [src("retention", "EOP Suspended")], { higherIsBetter: false }),
-  wavg("port_in_ga_pct", "Port In Gross Add %", "Retention", "activations", [src("retention", "Port In Gross Add %")]),
+  wavg("port_in_ga_pct", "Port In Gross Add %", "Retention", "wireless_gross_adds", [src("retention", "Port In Gross Add %")]),
 
   // --- Home Internet (CHI) ---------------------------------------------------------
   count("chi_orders", "Home Internet Orders", "Home Internet", [
+    src("mtd", "CHI › Achieved"), src("mtd", "CHI › Goals", "goal"),
     src("rank", "Home Internet Orders"), src("matrix", "Home Internet Orders"), src("chi", "Total Orders"),
   ]),
   count("chi_gross_adds", "Home Internet Gross Adds", "Home Internet", [
     src("rank", "Home Internet Gross Adds"), src("matrix", "Home Internet Gross Adds"), src("chi", "Gross Adds"),
   ]),
-  count("chi_addresses_checked", "Addresses Checked", "Home Internet", [src("chi", "Addresses Checked")]),
-  count("chi_addresses_eligible", "Addresses Eligible", "Home Internet", [src("chi", "Addresses Eligible")]),
+  count("chi_addresses_checked", "Addresses Checked", "Home Internet", [
+    src("mtd", "CHI › Addresses Checked for CHI"), src("chi", "Addresses Checked"),
+  ]),
+  count("chi_addresses_eligible", "Addresses Eligible", "Home Internet", [
+    src("mtd", "CHI › Addresses Eligible for CHI"), src("chi", "Addresses Eligible"),
+  ]),
   count("chi_credit_checked", "Addresses Credit Checked", "Home Internet", [src("chi", "Addresses Credit Checked")]),
   ratio("chi_credit_check_rate", "Credit Checks % of Address Checks", "Home Internet", "chi_credit_checked", "chi_addresses_checked",
     [src("chi", "Credit Checks % of Address Checks")]),

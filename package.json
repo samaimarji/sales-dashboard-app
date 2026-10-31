@@ -9,10 +9,15 @@
     "lint": "eslint",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "db:seed": "tsx --env-file=.env.local scripts/seed-demo.ts",
-    "db:reset": "tsx --env-file=.env.local scripts/reset.ts && npm run db:migrate && npm run db:seed"
+    "db:reset": "tsx --env-file=.env.local scripts/reset.ts && npm run db:migrate && npm run db:seed",
+    "samples": "tsx --env-file=.env.local scripts/make-sample-exports.ts",
+    "worker": "tsx --env-file=.env.local scripts/worker.ts",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "next": "15.5.28",
+    "pg-boss": "^12.38.0",
     "postgres": "^4.0.0",
     "react": "19.1.0",
     "react-dom": "19.1.0"

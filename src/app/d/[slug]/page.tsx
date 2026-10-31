@@ -62,7 +62,7 @@ export default async function DealerBrowser({ params, searchParams }: {
       )
       select p.id, p.name, p.level_key, p.code, p.path::text, r.store_count, r.m,
              (select sum(g.target) from kpi_goals g join org_units st on st.id = g.org_unit_id
-               where g.kpi_code = 'activations' and g.month = ${month} and st.path <@ p.path) as goal
+               where g.kpi_code = 'activations' and g.goal_set = 'dealer' and g.month = ${month} and st.path <@ p.path) as goal
         from page p
         left join org_rollup_daily r on r.org_unit_id = p.id and r.biz_date = ${latest}
        order by p.level_key = 'store', p.name`;
@@ -96,8 +96,7 @@ export default async function DealerBrowser({ params, searchParams }: {
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <div className="flex items-center justify-between">
-        <Link href="/" className="text-sm text-gray-500 hover:underline">← All dealers</Link>
+      <div className="flex items-center justify-end">
         <span className="text-sm text-gray-500">
           Numbers through {latest.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} (month to date)
         </span>

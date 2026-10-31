@@ -2,7 +2,7 @@
 
 A sales dashboard web app for Cricket Wireless dealers, built to work for 4 stores or 1,000+.
 
-**Status:** Step 1 of version 1 is done: project setup, database and sample data.
+**Status:** Steps 1–2 of version 1 are done: database, sample data, and the daily upload with reconciliation checks.
 All names and numbers in this project are made up.
 
 ## What's here
@@ -31,4 +31,9 @@ cp .env.example .env.local
 npm install
 npm run db:reset      # wipes the local database, creates tables, generates sample data (~5 min)
 npm run dev           # then open http://localhost:3000
+
+# fake Power BI files for trying the upload page:
+npm run samples -- --dealer sunrise --date 2026-10-30
+npm run samples -- --dealer pacific-coast --date 2026-10-30 --break   # with 3 planted mistakes
+npm test
 ```

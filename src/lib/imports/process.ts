@@ -1,0 +1,119 @@
+import { adminSql, withDealer } from "@/lib/db";
+import { getFile, putFile } from "@/lib/storage";
+import { mergeDay } from "./merge";
+import { parseFile, type ParsedFile } from "./parse";
+import { reconcile, type Issue } from "./reconcile";
+import { previewNewRecords, saveDay } from "./save";
+
+const MAX_ISSUES_STORED = 5000;
+
+interface BatchRow {
+  id: number;
+  dealer_id: number;
+  status: string;
+  biz_date: Date;
+  summary: Record<string, unknown>;
+}
+
+async function setStatus(dealerId: number, batchId: number, status: string, progress: number, extra: Record<string, unknown> = {}) {
+  await withDealer(dealerId, (sql) => sql`
+    update import_batches set status = ${status}, progress = ${progress},
+           summary = summary || ${sql.json(extra as never)},
+           finished_at = case when ${status} in ('done','failed','needs_review','cancelled') then now() else finished_at end
+     where id = ${batchId}`);
+}
+
+const parsedKey = (batchId: number) => `batches/${batchId}/parsed.json`;
+
+/**
+ * Step A: read every file, run the checks. If nothing is wrong, carry straight on
+ * and save. If there are mismatches, stop at "needs review" so a person decides.
+ */
+export async function checkBatch(batchId: number) {
+  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary from import_batches where id = ${batchId}`;
+  if (!batch || batch.status !== "queued") return;
+  const dealerId = batch.dealer_id;
+  try {
+    await setStatus(dealerId, batchId, "reading", 2);
+    const files = await withDealer(dealerId, (sql) => sql<{ id: number; original_name: string; storage_key: string }[]>`
+      select id, original_name, storage_key from import_files where batch_id = ${batchId} order by id`);
+
+    const parsed: ParsedFile[] = [];
+    for (const [i, f] of files.entries()) {
+      const p = await parseFile(f.original_name, await getFile(f.storage_key));
+      parsed.push(p);
+      await withDealer(dealerId, (sql) => sql`
+        update import_files set file_type = ${p.type}, row_count = ${p.records.length}, detected_date = ${p.dateThrough},
+               status = ${p.type ? "read" : "not_recognized"}, message = ${p.error ?? null}
+         where id = ${f.id}`);
+      await setStatus(dealerId, batchId, "reading", Math.round(5 + (45 * (i + 1)) / files.length));
+    }
+
+    await setStatus(dealerId, batchId, "checking", 55);
+    const chosen = batch.summary.chosen_date as string | undefined;
+    const result = reconcile(parsed, chosen ?? null);
+    const merged = mergeDay(parsed);
+    const issues: Issue[] = [...result.issues];
+    const preview = await withDealer(dealerId, (sql) => previewNewRecords(sql, dealerId, merged));
+    if (preview.newStores.length) {
+      issues.push({ severity: "warning", check: "new_records",
+        message: `${preview.newStores.length} store(s) not set up yet will be added at the company level: ${preview.newStores.slice(0, 20).join(", ")}${preview.newStores.length > 20 ? "…" : ""}` });
+    }
+    if (preview.newPeople) {
+      issues.push({ severity: "info", check: "new_records", message: `${preview.newPeople} new rep(s) will be added.` });
+    }
+
+    await putFile(parsedKey(batchId), JSON.stringify(parsed));
+    const counts = { error: 0, warning: 0, info: 0 };
+    for (const i of issues) counts[i.severity]++;
+    await withDealer(dealerId, async (sql) => {
+      await sql`delete from reconciliation_issues where batch_id = ${batchId}`;
+      const rows = issues.slice(0, MAX_ISSUES_STORED).map((i) => ({
+        batch_id: batchId, dealer_id: dealerId, severity: i.severity, check_name: i.check, store_id: null,
+        kpi_code: i.kpi ?? null, expected: i.expected ?? null, actual: i.actual ?? null, message: i.message,
+      }));
+      for (let k = 0; k < rows.length; k += 1000) await sql`insert into reconciliation_issues ${sql(rows.slice(k, k + 1000))}`;
+      if (result.dateThrough) await sql`update import_batches set biz_date = ${result.dateThrough}, date_source = ${result.dateSource} where id = ${batchId}`;
+    });
+
+    const summary = {
+      checks: result.checks, issue_counts: counts, date_through: result.dateThrough,
+      stores: merged.storeRows.size, reps: merged.repRows.length,
+    };
+    if (counts.error) {
+      await setStatus(dealerId, batchId, "needs_review", 60, summary);
+      return;
+    }
+    await setStatus(dealerId, batchId, "saving", 65, summary);
+    await saveBatch(batchId);
+  } catch (e) {
+    console.error(`Import ${batchId} failed`, e);
+    await adminSql`update import_batches set status = 'failed', error = ${String((e as Error).message ?? e)}, finished_at = now() where id = ${batchId}`;
+  }
+}
+
+/** Step B: write the day to the database (also used by "Save anyway"). */
+export async function saveBatch(batchId: number) {
+  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary from import_batches where id = ${batchId}`;
+  if (!batch || !["saving", "needs_review"].includes(batch.status)) return;
+  const dealerId = batch.dealer_id;
+  try {
+    await setStatus(dealerId, batchId, "saving", 70);
+    const parsed = JSON.parse((await getFile(parsedKey(batchId))).toString("utf8")) as ParsedFile[];
+    const merged = mergeDay(parsed);
+    const bizDate = batch.biz_date.toISOString().slice(0, 10);
+    await adminSql`select ensure_month_partitions(${bizDate}::date, ${bizDate}::date)`;
+    await setStatus(dealerId, batchId, "saving", 80);
+    const saved = await withDealer(dealerId, async (sql) => {
+      const r = await saveDay(sql, dealerId, batchId, bizDate, merged);
+      await sql`insert into audit_log (dealer_id, user_id, action, entity, entity_id, details)
+                values (${dealerId}, null, 'import.saved', 'import_batch', ${String(batchId)},
+                        ${sql.json({ biz_date: bizDate, ...r, forced: batch.status === "needs_review" })})`;
+      return r;
+    });
+    await setStatus(dealerId, batchId, "done", 100, { saved });
+  } catch (e) {
+    console.error(`Import ${batchId} failed while saving`, e);
+    await adminSql`update import_batches set status = 'failed', error = ${String((e as Error).message ?? e)}, finished_at = now() where id = ${batchId}`;
+  }
+}
