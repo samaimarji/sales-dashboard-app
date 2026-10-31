@@ -1,0 +1,5 @@
+﻿Severity,Store #,Store,District,Store status,Check,KPI,MTD value,Other file value,Difference,Details
+Problem,1001,Lakeside - Mountain View Rd,District 001,Held,Rep totals vs MTD (Detailed Matrix),Accessory Revenue,1000.82,1025.82,25,"Store 1001 Accessory Revenue: MTD says $1,000.82, Detailed Matrix reps add up to $1,025.82."
+Problem,1002,Falcon Ridge - Mountain View Rd,District 001,Held,Rank export vs MTD,Upgrades,30,31,1,"Store 1002 Upgrades: MTD says 30, Rank Export says 31."
+Problem,1003,Ironwood - Oak Ave,District 001,Held,Features file vs MTD,Upgrade Plus Opportunities,9,8,-1,"Store 1003 Upgrade Plus Opportunities: MTD says 9, Features reps add up to 8."
+Problem,1003,Ironwood - Oak Ave,District 001,Held,Features file vs MTD,Upgrade Plus Adds,2,1,-1,"Store 1003 Upgrade Plus Adds: MTD says 2, Features reps add up to 1."

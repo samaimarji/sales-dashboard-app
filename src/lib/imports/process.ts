@@ -3,9 +3,16 @@ import { getFile, putFile } from "@/lib/storage";
 import { mergeDay } from "./merge";
 import { parseFile, type ParsedFile } from "./parse";
 import { reconcile, type Issue } from "./reconcile";
-import { previewNewRecords, saveDay } from "./save";
+import { previewNewRecords, releaseStores, saveDay } from "./save";
 
 const MAX_ISSUES_STORED = 5000;
+
+/**
+ * Stores whose numbers don't match are held; the rest are saved. If too many stores
+ * fail, a whole file is probably wrong, so the entire day waits for review instead.
+ */
+const MAX_HELD_SHARE = 0.2;
+const MIN_HELD_BEFORE_DAY_HOLD = 5;
 
 interface BatchRow {
   id: number;
@@ -63,13 +70,23 @@ export async function checkBatch(batchId: number) {
       issues.push({ severity: "info", check: "new_records", message: `${preview.newPeople} new rep(s) will be added.` });
     }
 
+    // Which stores to hold, and whether the whole day must wait.
+    const heldStores = [...new Set(issues.filter((i) => i.severity === "error" && i.storeNumber).map((i) => i.storeNumber!))].sort((a, b) => Number(a) - Number(b));
+    const fileProblems = issues.filter((i) => i.severity === "error" && !i.storeNumber).length;
+    const storeCount = parsed.find((f) => f.type === "mtd")?.records.length ?? merged.storeRows.size;
+    const tooMany = heldStores.length > Math.max(MIN_HELD_BEFORE_DAY_HOLD, storeCount * MAX_HELD_SHARE);
+    if (tooMany) {
+      issues.unshift({ severity: "error", check: "files",
+        message: `${heldStores.length.toLocaleString()} of ${storeCount.toLocaleString()} stores don't match. That usually means one of the files is wrong (a different day, or a filter left on), so the whole day is on hold.` });
+    }
+
     await putFile(parsedKey(batchId), JSON.stringify(parsed));
     const counts = { error: 0, warning: 0, info: 0 };
     for (const i of issues) counts[i.severity]++;
     await withDealer(dealerId, async (sql) => {
       await sql`delete from reconciliation_issues where batch_id = ${batchId}`;
       const rows = issues.slice(0, MAX_ISSUES_STORED).map((i) => ({
-        batch_id: batchId, dealer_id: dealerId, severity: i.severity, check_name: i.check, store_id: null,
+        batch_id: batchId, dealer_id: dealerId, severity: i.severity, check_name: i.check, store_id: null, store_number: i.storeNumber ?? null,
         kpi_code: i.kpi ?? null, expected: i.expected ?? null, actual: i.actual ?? null, message: i.message,
       }));
       for (let k = 0; k < rows.length; k += 1000) await sql`insert into reconciliation_issues ${sql(rows.slice(k, k + 1000))}`;
@@ -79,8 +96,9 @@ export async function checkBatch(batchId: number) {
     const summary = {
       checks: result.checks, issue_counts: counts, date_through: result.dateThrough,
       stores: merged.storeRows.size, reps: merged.repRows.length,
+      held_stores: tooMany ? [] : heldStores, hold_whole_day: tooMany || fileProblems > 0,
     };
-    if (counts.error) {
+    if (summary.hold_whole_day) {
       await setStatus(dealerId, batchId, "needs_review", 60, summary);
       return;
     }
@@ -102,10 +120,12 @@ export async function saveBatch(batchId: number) {
     const parsed = JSON.parse((await getFile(parsedKey(batchId))).toString("utf8")) as ParsedFile[];
     const merged = mergeDay(parsed);
     const bizDate = batch.biz_date.toISOString().slice(0, 10);
+    // "Save anyway" on a day that was fully on hold saves every store.
+    const held = new Set(batch.status === "needs_review" ? [] : ((batch.summary.held_stores as string[] | undefined) ?? []));
     await adminSql`select ensure_month_partitions(${bizDate}::date, ${bizDate}::date)`;
     await setStatus(dealerId, batchId, "saving", 80);
     const saved = await withDealer(dealerId, async (sql) => {
-      const r = await saveDay(sql, dealerId, batchId, bizDate, merged);
+      const r = await saveDay(sql, dealerId, batchId, bizDate, merged, held);
       await sql`insert into audit_log (dealer_id, user_id, action, entity, entity_id, details)
                 values (${dealerId}, null, 'import.saved', 'import_batch', ${String(batchId)},
                         ${sql.json({ biz_date: bizDate, ...r, forced: batch.status === "needs_review" })})`;
@@ -116,4 +136,24 @@ export async function saveBatch(batchId: number) {
     console.error(`Import ${batchId} failed while saving`, e);
     await adminSql`update import_batches set status = 'failed', error = ${String((e as Error).message ?? e)}, finished_at = now() where id = ${batchId}`;
   }
+}
+
+/** Saves held stores from the files after all. Runs right away (a few stores at most). */
+export async function releaseHeldStores(dealerId: number, batchId: number, storeNumbers: string[] | "all", userId: number | null) {
+  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary from import_batches where id = ${batchId} and dealer_id = ${dealerId}`;
+  if (!batch || batch.status !== "done") throw new Error("Only the latest saved import for a day can release stores.");
+  const parsed = JSON.parse((await getFile(parsedKey(batchId))).toString("utf8")) as ParsedFile[];
+  const merged = mergeDay(parsed);
+  const bizDate = batch.biz_date.toISOString().slice(0, 10);
+  return withDealer(dealerId, async (sql) => {
+    const stillHeld = (await sql<{ store_number: string }[]>`
+      select store_number from import_held_stores where batch_id = ${batchId} and status = 'held'`).map((r) => r.store_number);
+    const targets = storeNumbers === "all" ? stillHeld : storeNumbers.filter((n) => stillHeld.includes(n));
+    if (!targets.length) return 0;
+    const n = await releaseStores(sql, dealerId, batchId, bizDate, merged, targets, userId);
+    await sql`insert into audit_log (dealer_id, user_id, action, entity, entity_id, details)
+              values (${dealerId}, ${userId}, 'import.held_stores_saved', 'import_batch', ${String(batchId)},
+                      ${sql.json({ biz_date: bizDate, stores: targets })})`;
+    return n;
+  });
 }

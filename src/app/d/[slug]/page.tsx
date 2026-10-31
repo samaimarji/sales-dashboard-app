@@ -79,11 +79,19 @@ export default async function DealerBrowser({ params, searchParams }: {
         select count(*)::int as n from rep_daily_mtd r join people p on p.id = r.person_id
          where r.store_id = ${current.id} and r.biz_date = ${latest} and p.hidden_from_rep_views`;
     }
-    return { labels, current, latest, crumbs, currentM, total, rows, reps, hiddenCount };
+    // Stores held by the latest import (their files didn't match), anywhere under this unit.
+    const held = await sql<{ store_id: number; batch_id: number; path: string }[]>`
+      select h.store_id, h.batch_id, u.path::text from import_held_stores h
+        join import_batches b on b.id = h.batch_id and b.status = 'done'
+        join org_units u on u.id = h.store_id
+       where h.biz_date = ${latest} and h.status = 'held' and u.path <@ ${current.path}::ltree`;
+    return { labels, current, latest, crumbs, currentM, total, rows, reps, hiddenCount, held };
   });
   if (!data) notFound();
 
-  const { labels, current, latest, crumbs, currentM, total, rows, reps, hiddenCount } = data;
+  const { labels, current, latest, crumbs, currentM, total, rows, reps, hiddenCount, held } = data;
+  // Held stores under a row (rows can be territories, districts... or single stores).
+  const heldUnder = (path: string) => held.filter((h) => h.path === path || h.path.startsWith(path + ".")).length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const href = (o: Search) => {
     const p = new URLSearchParams();
@@ -116,6 +124,14 @@ export default async function DealerBrowser({ params, searchParams }: {
       <h1 className="mt-2 text-2xl font-semibold" style={{ color: dealer.primary_color }}>
         {current.name} <span className="text-base font-normal text-gray-500">{labels[current.level_key]}</span>
       </h1>
+
+      {held.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          {current.level_key === "store" ? "This store is" : `${held.length} store${held.length === 1 ? "" : "s"} in this view ${held.length === 1 ? "is" : "are"}`} on hold:
+          the latest files didn&apos;t match, so {current.level_key === "store" ? "it shows its" : "they show their"} last good numbers.{" "}
+          <Link href={`/d/${slug}/imports/${held[0].batch_id}`} className="font-medium underline">Review</Link>
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {COLUMNS.map((k) => (
@@ -159,6 +175,11 @@ export default async function DealerBrowser({ params, searchParams }: {
                         <Link href={href({ unit: String(r.id) })} className="font-medium hover:underline">
                           {r.level_key === "store" ? `${r.code} · ${r.name}` : r.name}
                         </Link>
+                        {heldUnder(r.path) > 0 && (
+                          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                            {r.level_key === "store" ? "On hold" : `${heldUnder(r.path)} on hold`}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-gray-500">{labels[r.level_key]}</td>
                       <td className="px-3 py-2 text-right">{r.store_count ?? "–"}</td>

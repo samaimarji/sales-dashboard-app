@@ -130,7 +130,7 @@ export function reconcile(files: ParsedFile[], chosenDate: string | null): Recon
           mismatches++;
           issues.push({
             severity: "error", check: c.key, storeNumber: store, kpi: k, expected, actual,
-            message: `Store ${store} ${KPI_BY_CODE[k]?.label ?? k}: MTD says ${fmt(k, expected)}, ${from.label} ${FILE_TYPE_BY_KEY[c.from].level === "rep" ? "reps add up to" : "says"} ${fmt(k, actual)}.`,
+            message: `Store ${store} ${KPI_BY_CODE[k]?.label ?? k}: MTD says ${fmt(k, expected)}, ${from.label.replace(/ \(.*\)$/, "")} ${FILE_TYPE_BY_KEY[c.from].level === "rep" ? "reps add up to" : "says"} ${fmt(k, actual)}.`,
           });
         }
       }

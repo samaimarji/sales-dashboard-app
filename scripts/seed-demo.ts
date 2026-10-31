@@ -589,7 +589,7 @@ async function seedDealer(cfg: DealerConfig, dealerIndex: number) {
     goalRows.push({ dealer_id: dealerId, org_unit_id, month, kpi_code, target, source, goal_set });
   for (const month of months) {
     for (const s of sims) {
-      const expActs = 2.6 * s.traffic * 30;
+      const expActs = 2.6 * s.traffic * 30 * 1.08; // activations include Home Internet
       const a = Math.round(expActs * between(0.95, 1.15));
       goal(s.storeId, month, "activations", a, "import");
       goal(s.storeId, month, "upgrades", Math.round(a * 0.22), "import");

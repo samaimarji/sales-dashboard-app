@@ -20,8 +20,9 @@ export default async function ImportHistory({ params, searchParams }: {
   const dealer = (await getDealer(slug))!;
   const { rows, total } = await withDealer(dealer.id, async (sql) => {
     const [{ total }] = await sql<{ total: number }[]>`select count(*)::int as total from import_batches`;
-    const rows = await sql<{ id: number; biz_date: Date; status: string; source: string; created_at: Date; files: number; errors: number }[]>`
+    const rows = await sql<{ id: number; biz_date: Date; status: string; source: string; created_at: Date; files: number; errors: number; held: number }[]>`
       select b.id, b.biz_date, b.status, b.source, b.created_at,
+             (select count(*)::int from import_held_stores h where h.batch_id = b.id and h.status = 'held') as held,
              (select count(*)::int from import_files f where f.batch_id = b.id) as files,
              coalesce((b.summary -> 'issue_counts' ->> 'error')::int, 0) as errors
         from import_batches b order by b.created_at desc, b.id desc
@@ -56,7 +57,8 @@ export default async function ImportHistory({ params, searchParams }: {
                   <td className="px-3 py-2 text-gray-600">{r.created_at.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</td>
                   <td className="px-3 py-2 text-gray-600">{r.source === "generator" ? "Sample data" : "Upload"}</td>
                   <td className="px-3 py-2 text-right">{r.source === "generator" ? "–" : r.files}</td>
-                  <td className={`px-3 py-2 font-medium ${cls}`}>{label}{r.status === "needs_review" && r.errors ? ` (${r.errors})` : ""}</td>
+                  <td className={`px-3 py-2 font-medium ${cls}`}>{label}{r.status === "needs_review" && r.errors ? ` (${r.errors})` : ""}
+                    {r.status === "done" && r.held > 0 && <span className="ml-1 font-normal text-amber-600">· {r.held} store{r.held === 1 ? "" : "s"} on hold</span>}</td>
                 </tr>
               );
             })}

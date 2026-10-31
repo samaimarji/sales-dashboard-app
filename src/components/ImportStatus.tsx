@@ -9,7 +9,8 @@ interface Data {
     id: number; biz_date: string; status: string; progress: number; error: string | null; date_source: string | null;
     summary: {
       checks?: Check[]; issue_counts?: { error: number; warning: number; info: number };
-      stores?: number; reps?: number; saved?: { reps: number; stores: number; newStores: number; newPeople: number };
+      stores?: number; reps?: number; hold_whole_day?: boolean;
+      saved?: { reps: number; stores: number; held?: number; newStores: number; newPeople: number };
     };
   };
   files: { id: number; original_name: string; file_type: string | null; row_count: number | null; detected_date: string | null; status: string; message: string | null }[];
@@ -17,6 +18,10 @@ interface Data {
   issueTotal: number;
   page: number;
   pageSize: number;
+  held: { store_number: string; status: string; carried_from: string | null; store_name: string; district: string | null; problems: string[] }[];
+  heldTotal: number;
+  stillHeld: number;
+  heldPage: number;
 }
 
 const STAGES: Record<string, string> = {
@@ -35,12 +40,14 @@ export default function ImportStatus({ slug, id, color }: { slug: string; id: nu
   const [severity, setSeverity] = useState("");
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [heldPage, setHeldPage] = useState(1);
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
-    const q = new URLSearchParams({ page: String(page), ...(severity ? { severity } : {}) });
+    const q = new URLSearchParams({ page: String(page), heldPage: String(heldPage), ...(severity ? { severity } : {}) });
     const res = await fetch(`/api/d/${slug}/imports/${id}?${q}`, { cache: "no-store" });
     if (res.ok) setData(await res.json());
-  }, [slug, id, severity, page]);
+  }, [slug, id, severity, page, heldPage]);
 
   useEffect(() => {
     load();
@@ -54,6 +61,18 @@ export default function ImportStatus({ slug, id, color }: { slug: string; id: nu
   async function act(action: "save" | "cancel") {
     setBusy(true);
     await fetch(`/api/d/${slug}/imports/${id}/${action}`, { method: "POST" });
+    await load();
+    setBusy(false);
+  }
+
+  async function release(stores: string[] | "all") {
+    setBusy(true);
+    setNotice("");
+    const res = await fetch(`/api/d/${slug}/imports/${id}/release`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ stores }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setNotice(res.ok ? `Saved ${body.saved} store${body.saved === 1 ? "" : "s"} from the files.` : body.error ?? "Couldn't save.");
     await load();
     setBusy(false);
   }
@@ -87,6 +106,7 @@ export default function ImportStatus({ slug, id, color }: { slug: string; id: nu
         {batch.status === "done" && s.saved && (
           <p className="mt-3 text-sm text-green-700">
             Saved {s.saved.stores.toLocaleString()} stores and {s.saved.reps.toLocaleString()} rep rows.
+            {data.heldTotal ? ` ${data.stillHeld.toLocaleString()} store${data.stillHeld === 1 ? " is" : "s are"} on hold (below).` : ""}
             {s.saved.newStores ? ` Added ${s.saved.newStores} new store(s).` : ""}
             {s.saved.newPeople ? ` Added ${s.saved.newPeople} new rep(s).` : ""}{" "}
             <Link href={`/d/${slug}`} className="underline">See the numbers →</Link>
@@ -95,8 +115,10 @@ export default function ImportStatus({ slug, id, color }: { slug: string; id: nu
         {batch.status === "failed" && <p className="mt-3 text-sm text-red-600">Something went wrong: {batch.error}</p>}
         {batch.status === "needs_review" && (
           <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-            <p><b>Nothing has been saved yet.</b> The checks found {counts?.error} problem{counts?.error === 1 ? "" : "s"} (listed below).
-              Fix the files and upload again, or save anyway if you know why the numbers differ.</p>
+            <p><b>Nothing has been saved yet.</b> {s.hold_whole_day && (s.checks ?? []).some((c) => c.mismatches > 0)
+              ? "Too many stores don't match, or a file has a problem, so the whole day is on hold."
+              : `The checks found ${counts?.error} problem${counts?.error === 1 ? "" : "s"} with the files.`}{" "}
+              Details are below. Fix the files and upload again, or save anyway if you know why the numbers differ.</p>
             <div className="mt-3 flex gap-2">
               <button disabled={busy} onClick={() => act("save")} className="rounded-md px-4 py-1.5 font-medium text-white" style={{ background: color }}>Save anyway</button>
               <button disabled={busy} onClick={() => act("cancel")} className="rounded-md border border-gray-300 bg-white px-4 py-1.5">Cancel import</button>
@@ -104,6 +126,67 @@ export default function ImportStatus({ slug, id, color }: { slug: string; id: nu
           </div>
         )}
       </div>
+
+      {data.heldTotal > 0 && (
+        <div className="mt-6 rounded-xl border border-amber-200 bg-white p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold">Stores on hold ({data.stillHeld.toLocaleString()} of {data.heldTotal.toLocaleString()})</h2>
+              <p className="mt-1 text-sm text-gray-600">
+                These stores&apos; files don&apos;t match, so their new numbers weren&apos;t saved. Until you decide, screens show each store&apos;s
+                last good numbers from earlier this month. Every other store is up to date.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <a href={`/api/d/${slug}/imports/${id}/report`} className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium">
+                Download issue report
+              </a>
+              {data.stillHeld > 0 && batch.status === "done" && (
+                <button disabled={busy} onClick={() => release("all")} className="rounded-md px-3 py-1.5 text-sm font-medium text-white" style={{ background: color }}>
+                  Save all held stores anyway
+                </button>
+              )}
+            </div>
+          </div>
+          {notice && <p className="mt-3 text-sm text-gray-700">{notice}</p>}
+          <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full text-sm" data-testid="held-table">
+              <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+                <tr><th className="px-3 py-2">Store</th><th className="px-3 py-2">District</th><th className="px-3 py-2">Problems</th>
+                  <th className="px-3 py-2">Showing now</th><th className="px-3 py-2"></th></tr>
+              </thead>
+              <tbody>
+                {data.held.map((h) => (
+                  <tr key={h.store_number} className="border-t border-gray-100 align-top">
+                    <td className="px-3 py-2 font-medium">{h.store_number} · {h.store_name}</td>
+                    <td className="px-3 py-2 text-gray-600">{h.district ?? "–"}</td>
+                    <td className="px-3 py-2">
+                      <ul className="space-y-0.5">{h.problems.map((p, i) => <li key={i}>{p.replace(/^Store \S+ /, "")}</li>)}</ul>
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {h.status === "released" ? "New numbers (saved anyway)" : h.carried_from ? `Numbers through ${fmtDate(h.carried_from)}` : "No numbers yet this month"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {h.status === "held" && batch.status === "done"
+                        ? <button disabled={busy} onClick={() => release([h.store_number])} className="whitespace-nowrap text-sm font-medium hover:underline" style={{ color }}>Save anyway</button>
+                        : h.status === "released" ? <span className="text-green-700">✓ Saved</span> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.heldTotal > 50 && (
+            <div className="mt-2 flex justify-between text-sm text-gray-600">
+              <span>page {heldPage} of {Math.ceil(data.heldTotal / 50)}</span>
+              <span className="flex gap-3">
+                {heldPage > 1 && <button onClick={() => setHeldPage(heldPage - 1)} className="hover:underline">← Previous</button>}
+                {heldPage * 50 < data.heldTotal && <button onClick={() => setHeldPage(heldPage + 1)} className="hover:underline">Next →</button>}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       <h2 className="mt-8 font-semibold">Files</h2>
       <div className="mt-2 overflow-x-auto rounded-lg border border-gray-200 bg-white">

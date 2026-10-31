@@ -35,6 +35,9 @@
 - MTD "Activations" = Total Connected Gross Adds (wireless + Home Internet), verified against real files.
   `wireless_gross_adds` is the wireless-only number.
 - Saving a date deletes and rewrites that date (no duplicates), then refreshes rollups for that date.
+- Mismatched stores are **held**, not the whole day (owner's choice): held stores keep their last good snapshot
+  from the same month (`import_held_stores.carried_from`) until "Save anyway". File-level problems, or more than
+  max(5, 20%) of stores failing, hold the whole day (`needs_review`). Issue report: `/api/d/<slug>/imports/<id>/report` (CSV).
 - Employee IDs match case-insensitively. Unknown stores are added under the company level (`auto_added`).
 
 ## Roadmap

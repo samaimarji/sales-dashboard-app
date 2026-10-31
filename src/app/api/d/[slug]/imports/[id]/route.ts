@@ -28,7 +28,22 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
        where batch_id = ${batch.id} ${filter}
        order by case severity when 'error' then 0 when 'warning' then 1 else 2 end, id
        limit ${PAGE} offset ${(page - 1) * PAGE}`;
-    return { batch, files, issues, issueTotal: total, page, pageSize: PAGE };
+    // Held stores with their problems, 50 per page.
+    const heldPage = Math.max(1, Number(url.searchParams.get("heldPage")) || 1);
+    const [{ heldTotal, stillHeld }] = await sql<{ heldTotal: number; stillHeld: number }[]>`
+      select count(*)::int as "heldTotal", count(*) filter (where status = 'held')::int as "stillHeld"
+        from import_held_stores where batch_id = ${batch.id}`;
+    const held = await sql<{ store_number: string; status: string; carried_from: Date | null; store_name: string; district: string | null; problems: string[] }[]>`
+      select h.store_number, h.status, h.carried_from, u.name as store_name, d.name as district,
+             coalesce((select array_agg(i.message order by i.id) from reconciliation_issues i
+                        where i.batch_id = h.batch_id and i.store_number = h.store_number and i.severity = 'error'), '{}') as problems
+        from import_held_stores h
+        join org_units u on u.id = h.store_id
+        left join org_units d on d.id = u.parent_id
+       where h.batch_id = ${batch.id}
+       order by h.status = 'released', nullif(regexp_replace(h.store_number, '\\D', '', 'g'), '')::int nulls last
+       limit 50 offset ${(heldPage - 1) * 50}`;
+    return { batch, files, issues, issueTotal: total, page, pageSize: PAGE, held, heldTotal, stillHeld, heldPage };
   });
   if (!data) return NextResponse.json({ error: "Import not found" }, { status: 404 });
   return NextResponse.json(data);

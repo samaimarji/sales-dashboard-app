@@ -70,15 +70,10 @@ export async function previewNewRecords(sql: Tx, dealerId: number, merged: Merge
   return { newStores, newPeople: created };
 }
 
-/**
- * Writes one day. Anything already saved for that date is replaced, so uploading the
- * same day twice never doubles the numbers.
- */
-export async function saveDay(sql: Tx, dealerId: number, batchId: number, bizDate: string, merged: MergedDay) {
+/** Store numbers -> store ids, adding unknown stores under the company level. */
+async function resolveStores(sql: Tx, dealerId: number, merged: MergedDay) {
   const [root] = await sql<{ id: number; path: string }[]>`
     select id, path::text from org_units where level_key = 'dealer'`;
-
-  // 1. Stores: look up by store number; add unknown ones under the company level.
   const storeNumbers = [...merged.storeLocations.keys()];
   const storeId = new Map<string, number>();
   for (const s of await sql<{ store_number: string; org_unit_id: number }[]>`
@@ -95,13 +90,19 @@ export async function saveDay(sql: Tx, dealerId: number, batchId: number, bizDat
     await sql`insert into stores ${sql(units.map((u) => ({ org_unit_id: u.id, dealer_id: dealerId, store_number: u.code })))}`;
     for (const u of units) storeId.set(u.code, u.id);
   }
+  return { storeId, newStores: newStores.length };
+}
 
-  // 2. People: combine every spelling of a person into one id.
+/** Rep and store rows ready to insert, for the stores in `only` (all stores if omitted). */
+async function buildRows(sql: Tx, dealerId: number, batchId: number, bizDate: string, merged: MergedDay,
+  storeId: Map<string, number>, only?: Set<string>) {
   const { byRaw, created } = await resolvePeople(sql, dealerId, merged, false);
+  const include = (n: string) => !only || only.has(n);
 
-  // 3. Rep rows per (store, person). A person listed twice at a store is added together.
+  // A person listed twice at a store is added together.
   const grouped = new Map<string, { store_id: number; person_id: number; maps: Kpis[] }>();
   for (const r of merged.repRows) {
+    if (!include(r.storeNumber)) continue;
     const store_id = storeId.get(r.storeNumber)!;
     const person_id = byRaw.get(r.repRaw)!;
     const key = `${store_id}|${person_id}`;
@@ -116,25 +117,59 @@ export async function saveDay(sql: Tx, dealerId: number, batchId: number, bizDat
         from unnest(${pairs.map((p) => p.person_id)}::int[], ${pairs.map((p) => p.store_id)}::int[]) as p(person_id, store_id)
        where not exists (select 1 from store_assignments a where a.person_id = p.person_id and a.store_id = p.store_id)`;
   }
-
-  // 4. Replace the day.
-  await sql`update import_batches set status = 'replaced' where biz_date = ${bizDate} and status = 'done' and id <> ${batchId}`;
-  await sql`delete from rep_daily_mtd where biz_date = ${bizDate}`;
-  await sql`delete from store_daily_mtd where biz_date = ${bizDate}`;
-
   const repRows = pairs.map((p) => ({
     dealer_id: dealerId, biz_date: bizDate, store_id: p.store_id, person_id: p.person_id,
     m: sql.json(combine(p.maps)), import_batch_id: batchId,
   }));
-  for (let i = 0; i < repRows.length; i += 2000) await sql`insert into rep_daily_mtd ${sql(repRows.slice(i, i + 2000))}`;
-
-  const storeRows = [...merged.storeRows].map(([n, m]) => ({
+  const storeRows = [...merged.storeRows].filter(([n]) => include(n)).map(([n, m]) => ({
     dealer_id: dealerId, biz_date: bizDate, store_id: storeId.get(n)!, m: sql.json({ open_stores: 1, ...m }), import_batch_id: batchId,
   }));
-  for (let i = 0; i < storeRows.length; i += 2000) await sql`insert into store_daily_mtd ${sql(storeRows.slice(i, i + 2000))}`;
+  return { repRows, storeRows, newPeople: created };
+}
 
-  // 5. Goals from the files, for the month of this date.
+async function insertRows(sql: Tx, rows: { repRows: unknown[]; storeRows: unknown[] }) {
+  for (let i = 0; i < rows.repRows.length; i += 2000) await sql`insert into rep_daily_mtd ${sql(rows.repRows.slice(i, i + 2000) as never)}`;
+  for (let i = 0; i < rows.storeRows.length; i += 2000) await sql`insert into store_daily_mtd ${sql(rows.storeRows.slice(i, i + 2000) as never)}`;
+}
+
+/**
+ * Writes one day. Anything already saved for that date is replaced, so uploading the
+ * same day twice never doubles the numbers.
+ *
+ * Stores in `held` (their files don't match) aren't written from the files. They keep
+ * their last good numbers from earlier this month, so totals don't drop, until someone
+ * releases them from the import page.
+ */
+export async function saveDay(sql: Tx, dealerId: number, batchId: number, bizDate: string, merged: MergedDay,
+  held: Set<string> = new Set()) {
+  const { storeId, newStores } = await resolveStores(sql, dealerId, merged);
+  const keep = new Set([...merged.storeLocations.keys()].filter((n) => !held.has(n)));
+  const rows = await buildRows(sql, dealerId, batchId, bizDate, merged, storeId, keep);
+
+  await sql`update import_batches set status = 'replaced' where biz_date = ${bizDate} and status = 'done' and id <> ${batchId}`;
+  await sql`delete from rep_daily_mtd where biz_date = ${bizDate}`;
+  await sql`delete from store_daily_mtd where biz_date = ${bizDate}`;
+  await insertRows(sql, rows);
+
+  // Held stores: copy their latest earlier snapshot from the same month (if any).
   const month = bizDate.slice(0, 8) + "01";
+  for (const n of held) {
+    const id = storeId.get(n);
+    if (!id) continue;
+    const [{ prev }] = await sql<{ prev: Date | null }[]>`
+      select max(biz_date) as prev from store_daily_mtd
+       where store_id = ${id} and biz_date < ${bizDate} and biz_date >= ${month}`;
+    if (prev) {
+      await sql`insert into store_daily_mtd (dealer_id, biz_date, store_id, m, import_batch_id)
+                select dealer_id, ${bizDate}, store_id, m, ${batchId} from store_daily_mtd where store_id = ${id} and biz_date = ${prev}`;
+      await sql`insert into rep_daily_mtd (dealer_id, biz_date, store_id, person_id, m, import_batch_id)
+                select dealer_id, ${bizDate}, store_id, person_id, m, ${batchId} from rep_daily_mtd where store_id = ${id} and biz_date = ${prev}`;
+    }
+    await sql`insert into import_held_stores (batch_id, dealer_id, biz_date, store_id, store_number, carried_from)
+              values (${batchId}, ${dealerId}, ${bizDate}, ${id}, ${n}, ${prev})`;
+  }
+
+  // Goals from the files, for the month of this date.
   const goals = merged.goals
     .filter((g) => storeId.has(g.storeNumber))
     .map((g) => ({ dealer_id: dealerId, org_unit_id: storeId.get(g.storeNumber)!, month, kpi_code: g.kpi, target: g.target, source: "import", goal_set: g.goalSet }));
@@ -146,8 +181,25 @@ export async function saveDay(sql: Tx, dealerId: number, batchId: number, bizDat
       do update set target = excluded.target, source = 'import'`;
   }
 
-  // 6. Pre-added totals for every org level.
   await sql`select refresh_rollups(${dealerId}, ${bizDate}::date, ${bizDate}::date)`;
 
-  return { reps: repRows.length, stores: storeRows.length, newStores: newStores.length, newPeople: created, goals: uniqueGoals.length };
+  return {
+    reps: rows.repRows.length, stores: rows.storeRows.length, held: held.size,
+    newStores, newPeople: rows.newPeople, goals: uniqueGoals.length,
+  };
+}
+
+/** Saves held stores from the uploaded files after all ("Save this store anyway"). */
+export async function releaseStores(sql: Tx, dealerId: number, batchId: number, bizDate: string, merged: MergedDay,
+  storeNumbers: string[], userId: number | null) {
+  const { storeId } = await resolveStores(sql, dealerId, merged);
+  const ids = storeNumbers.map((n) => storeId.get(n)!).filter(Boolean);
+  const rows = await buildRows(sql, dealerId, batchId, bizDate, merged, storeId, new Set(storeNumbers));
+  await sql`delete from rep_daily_mtd where biz_date = ${bizDate} and store_id = any(${ids})`;
+  await sql`delete from store_daily_mtd where biz_date = ${bizDate} and store_id = any(${ids})`;
+  await insertRows(sql, rows);
+  await sql`update import_held_stores set status = 'released', released_at = now(), released_by = ${userId}
+             where batch_id = ${batchId} and store_id = any(${ids})`;
+  await sql`select refresh_rollups(${dealerId}, ${bizDate}::date, ${bizDate}::date)`;
+  return ids.length;
 }
