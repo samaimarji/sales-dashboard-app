@@ -146,7 +146,7 @@ function findDateThrough(grid: Cell[][]): string | null {
   return null;
 }
 
-/** "228: Spacetel LLC - Harbor Blvd" -> "228" */
+/** "101: Demo Dealer - Main St" -> "101" */
 export function storeNumberOf(location: string): string | null {
   const m = location.trim().match(/^(\d{1,6})\s*[:\-–]/) ?? location.trim().match(/^(\d{1,6})$/);
   return m ? m[1] : null;
