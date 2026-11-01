@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Crumbs, Pager, cellClass } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { goalsFor } from "@/lib/kpis/goals";
 import { statusOf } from "@/lib/kpis/pace";
 import { OPPORTUNITIES } from "@/lib/kpis/sets";
@@ -27,12 +27,12 @@ export default async function Opportunities({ params, searchParams }: {
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const dealer = await getDealer(slug);
-  if (!dealer) notFound();
+  const access = await requireAccess(slug);
+  const { dealer } = access;
   const page = Math.max(1, Number(sp.page) || 1);
 
   const data = await withDealer(dealer.id, async (sql) => {
-    const ctx = await orgContext(sql, sp.unit);
+    const ctx = await orgContext(sql, sp.unit, access.roots);
     if (!ctx) return null;
     const { current, latestIso, mp } = ctx;
     const [{ m }] = await sql<{ m: KpiMap | null }[]>`

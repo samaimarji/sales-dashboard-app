@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getAccess } from "@/lib/auth/access";
+import { logout } from "@/lib/auth/actions";
+import { currentUser } from "@/lib/auth/session";
 import { adminSql } from "@/lib/db";
 import { formatKpi } from "@/lib/kpis/value";
 
@@ -18,9 +22,20 @@ interface DealerRow {
   levels: string;
 }
 
-// Step 1 check page: every demo dealer with its size and data range.
-// (Platform-admin view; logins arrive in step 5.)
+/**
+ * Front door. Platform admins see every dealer; everyone else goes straight to their
+ * own home (company overview, district, store card, or their rep card).
+ */
 export default async function Home() {
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  if (user.must_change_password) redirect("/account?first=1");
+  if (!user.is_platform_admin) {
+    const [d] = await adminSql<{ slug: string }[]>`select slug from dealers where id = ${user.dealer_id}`;
+    const a = d ? await getAccess(d.slug) : "forbidden";
+    redirect(typeof a === "object" ? a.home : "/no-access");
+  }
+
   const dealers = await adminSql<DealerRow[]>`
     select d.id, d.slug, d.name, d.primary_color,
            (select count(*)::int from stores s where s.dealer_id = d.id) as stores,
@@ -39,8 +54,11 @@ export default async function Home() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Dealer Dashboard</h1>
-      <p className="mt-1 text-sm text-gray-600">Step 1 check: sample dealers in the database. All names are made up.</p>
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold">Dealer Dashboard</h1>
+        <form action={logout} className="text-sm text-gray-500">{user.full_name} · <Link href="/account" className="hover:underline">Account</Link> · <button className="hover:underline">Log out</button></form>
+      </div>
+      <p className="mt-1 text-sm text-gray-600">Platform admin: every dealer on the system. Sample dealers use made-up names.</p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         {dealers.map((d) => (

@@ -23,7 +23,7 @@
 - Power BI files are identified by header row, never by file name. Column mapping lives in the KPI catalog `sources`.
 
 ## Commands
-- `npm run db:reset`: wipe the local DB, migrate and seed (~5 min)
+- `npm run db:reset`: wipe the local DB, migrate, seed and add demo logins (~5 min)
 - `npm run db:migrate`, `npm run db:seed`, `npm run dev`, `npm run build`, `npm run lint`
 - `npm run samples -- --dealer sunrise --date 2026-10-30 [--break]`: write fake Power BI exports to `samples/`
 - `npm test`: importer tests (generate the sunrise and broken pacific-coast samples first)
@@ -57,7 +57,17 @@
   `people.merged_into_id`; imports follow `merged_into_id` when matching by employee ID. Hidden wins if either was hidden.
 - Goals typed in Settings (`source = 'manual'`) are never overwritten by imported MTD goals.
 
+## Logins and roles (step 5)
+- Email + password (scrypt hash), session token in httpOnly cookie `dd_session` (sha256 stored in `sessions`, 14 days).
+  8 failed logins in 15 min locks the email. New logins must change their temporary password.
+- `src/lib/auth/access.ts`: `requireAccess(slug, { admin?, allowRep? })` for pages, `apiAccess()` for API routes,
+  `canSeePerson()` for rep cards. Every page passes `access.roots` to `orgContext()` so units outside the user's part
+  of the tree fall back to their own. Reps see only their own card; uploads/imports/settings are dealer-admin only.
+- Roles live in `user_roles` (role + org unit). Platform admins (`users.is_platform_admin`) see every dealer.
+- Demo logins: `npm run db:demo-users` (password from `DEMO_PASSWORD` in `.env.local`). First real admin: `npm run create-admin`.
+- `src/middleware.ts` only checks the cookie exists; real checks are server-side on every request.
+
 ## Roadmap
 v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens ✅ (4) hide/merge settings ✅
-(5) logins and roles (6) speed test at 1,000 stores.
+(5) logins and roles ✅ (6) speed test at 1,000 stores.
 Later: schedule planner (labor budget and lunch rules), commission calculator, email/Drive imports, billing per store.

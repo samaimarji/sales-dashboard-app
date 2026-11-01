@@ -27,6 +27,8 @@ export function formatKpi(code: string, v: number | undefined): string {
   if (unit === "percent") return `${(v * 100).toFixed(1)}%`;
   if (unit === "currency") return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   if (unit === "decimal") return v.toFixed(1);
+  // Small fractional counts (a rep's share of a goal, a daily average) keep one decimal.
+  if (Math.abs(v) < 10 && !Number.isInteger(v)) return v.toFixed(1);
   return Math.round(v).toLocaleString("en-US");
 }
 

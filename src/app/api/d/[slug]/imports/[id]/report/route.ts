@@ -1,5 +1,5 @@
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { apiAccess } from "@/lib/auth/access";
 import { KPI_BY_CODE } from "@/lib/kpis/catalog";
 
 const CHECK_LABELS: Record<string, string> = {
@@ -15,8 +15,9 @@ const csv = (v: unknown) => {
 /** Issue report for one import, as a spreadsheet (CSV opens in Excel and Google Sheets). */
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params;
-  const dealer = await getDealer(slug);
-  if (!dealer) return new Response("Dealer not found", { status: 404 });
+  const access = await apiAccess(slug, { admin: true });
+  if (access instanceof Response) return access;
+  const { dealer } = access;
   const data = await withDealer(dealer.id, async (sql) => {
     const [batch] = await sql<{ id: number; biz_date: Date }[]>`select id, biz_date from import_batches where id = ${Number(id)}`;
     if (!batch) return null;

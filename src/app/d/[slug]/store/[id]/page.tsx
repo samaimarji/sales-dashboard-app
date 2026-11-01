@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ProgressCard } from "@/components/ProgressCard";
 import { Crumbs, dailyFromMtd } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { goalsFor } from "@/lib/kpis/goals";
 import { shortLabel } from "@/lib/kpis/sets";
 import { formatKpi, kpiValue, type KpiMap } from "@/lib/kpis/value";
@@ -18,12 +18,13 @@ const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 export default async function StoreCard({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params;
-  const dealer = await getDealer(slug);
-  if (!dealer) notFound();
+  const access = await requireAccess(slug);
+  const { dealer } = access;
 
   const data = await withDealer(dealer.id, async (sql) => {
-    const ctx = await orgContext(sql, id);
-    if (!ctx || ctx.current.level_key !== "store") return null;
+    const ctx = await orgContext(sql, id, access.roots);
+    // Outside the user's part of the tree, orgContext falls back to their own unit: treat as not found.
+    if (!ctx || ctx.current.level_key !== "store" || ctx.current.id !== Number(id)) return null;
     const { current, latestIso, mp } = ctx;
     const [store] = await sql<{ address: string | null; city: string | null; hours: Record<string, [string, string]> }[]>`
       select address, city, hours from stores where org_unit_id = ${current.id}`;

@@ -1,6 +1,6 @@
 import { Pager } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { withParams } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,9 @@ const ACTIONS: Record<string, string> = {
   "person.hidden": "Hid from rep views", "person.shown": "Showed in rep views again", "person.combined": "Combined people",
   "goals.changed": "Changed store goals", "goals.copied": "Copied goals", "targets.changed": "Changed rate targets",
   "company.changed": "Changed company settings", "report.saved": "Saved a report", "report.deleted": "Deleted a report",
-  "demo.seeded": "Sample data created",
+  "demo.seeded": "Sample data created", "user.login": "Logged in", "user.added": "Added a login",
+  "user.password_reset": "Reset a password", "user.password_changed": "Changed own password",
+  "user.deactivated": "Turned a login off", "user.reactivated": "Turned a login back on",
 };
 
 function summary(action: string, d: Record<string, unknown>): string {
@@ -28,6 +30,7 @@ function summary(action: string, d: Record<string, unknown>): string {
   if (action === "import.uploaded") return `${(d.files as string[] | undefined)?.length ?? 0} files`;
   if (action === "import.held_stores_saved") return `Stores ${(d.stores as string[]).join(", ")}`;
   if (action.startsWith("report.")) return String(d.name ?? "");
+  if (action.startsWith("user.")) return String(d.email ?? d.ip ?? "");
   return "";
 }
 
@@ -35,7 +38,7 @@ function summary(action: string, d: Record<string, unknown>): string {
 export default async function History({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ page?: string }> }) {
   const { slug } = await params;
   const page = Math.max(1, Number((await searchParams).page) || 1);
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   const rows = await withDealer(dealer.id, (sql) => sql<{ id: number; action: string; details: Record<string, unknown>; at: Date; who: string | null; total: number }[]>`
     select a.id, a.action, a.details, a.at, u.full_name as who, count(*) over ()::int as total
       from audit_log a left join users u on u.id = a.user_id
@@ -43,7 +46,7 @@ export default async function History({ params, searchParams }: { params: Promis
   const total = rows[0]?.total ?? 0;
   return (
     <div>
-      <p className="text-sm text-gray-600">Every upload and every settings change. Names appear here once logins are set up.</p>
+      <p className="text-sm text-gray-600">Every login, upload and settings change, and who did it.</p>
       <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">

@@ -9,9 +9,9 @@ interface KpiOption { code: string; label: string; category: string; description
  * The KPI checklist: pick any KPIs from all 7 files, choose what each row is
  * (stores, districts, reps...), then show it or save it as a named report.
  */
-export default function ReportBuilder({ slug, unitId, kpis, selected, level, levels, reportName, canDelete, reportId, color }: {
+export default function ReportBuilder({ slug, unitId, kpis, selected, level, levels, reportName, canDelete, canShare, reportId, color }: {
   slug: string; unitId: number; kpis: KpiOption[]; selected: string[]; level: string;
-  levels: { key: string; label: string }[]; reportName: string; canDelete: boolean; reportId: number | null; color: string;
+  levels: { key: string; label: string }[]; reportName: string; canDelete: boolean; canShare: boolean; reportId: number | null; color: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -51,10 +51,11 @@ export default function ReportBuilder({ slug, unitId, kpis, selected, level, lev
   async function save() {
     const name = window.prompt("Name this report", reportName === "Custom report" ? "" : reportName);
     if (!name) return;
+    const shared = canShare && window.confirm("Share this report with everyone at the company?\n\nOK = everyone sees it · Cancel = only you");
     setBusy(true);
     const res = await fetch(`/api/d/${slug}/reports`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, level: rowLevel, kpis: picked }),
+      body: JSON.stringify({ name, level: rowLevel, kpis: picked, shared }),
     });
     const body = await res.json().catch(() => ({}));
     setBusy(false);

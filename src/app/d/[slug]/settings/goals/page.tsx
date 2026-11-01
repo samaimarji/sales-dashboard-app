@@ -1,6 +1,6 @@
 import { Pager } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { KPI_BY_CODE } from "@/lib/kpis/catalog";
 import { formatKpi, kpiValue, type KpiMap } from "@/lib/kpis/value";
 import { withParams } from "@/lib/links";
@@ -23,7 +23,7 @@ const addMonths = (m: string, n: number) => {
 export default async function GoalSettings({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Search> }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   const page = Math.max(1, Number(sp.page) || 1);
   const q = (sp.q ?? "").trim().toLowerCase();
 

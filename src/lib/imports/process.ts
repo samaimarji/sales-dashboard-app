@@ -20,6 +20,7 @@ interface BatchRow {
   status: string;
   biz_date: Date;
   summary: Record<string, unknown>;
+  uploaded_by: number | null;
 }
 
 async function setStatus(dealerId: number, batchId: number, status: string, progress: number, extra: Record<string, unknown> = {}) {
@@ -37,7 +38,7 @@ const parsedKey = (batchId: number) => `batches/${batchId}/parsed.json`;
  * and save. If there are mismatches, stop at "needs review" so a person decides.
  */
 export async function checkBatch(batchId: number) {
-  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary from import_batches where id = ${batchId}`;
+  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary, uploaded_by from import_batches where id = ${batchId}`;
   if (!batch || batch.status !== "queued") return;
   const dealerId = batch.dealer_id;
   try {
@@ -112,7 +113,7 @@ export async function checkBatch(batchId: number) {
 
 /** Step B: write the day to the database (also used by "Save anyway"). */
 export async function saveBatch(batchId: number) {
-  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary from import_batches where id = ${batchId}`;
+  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary, uploaded_by from import_batches where id = ${batchId}`;
   if (!batch || !["saving", "needs_review"].includes(batch.status)) return;
   const dealerId = batch.dealer_id;
   try {
@@ -127,7 +128,7 @@ export async function saveBatch(batchId: number) {
     const saved = await withDealer(dealerId, async (sql) => {
       const r = await saveDay(sql, dealerId, batchId, bizDate, merged, held);
       await sql`insert into audit_log (dealer_id, user_id, action, entity, entity_id, details)
-                values (${dealerId}, null, 'import.saved', 'import_batch', ${String(batchId)},
+                values (${dealerId}, ${batch.uploaded_by}, 'import.saved', 'import_batch', ${String(batchId)},
                         ${sql.json({ biz_date: bizDate, ...r, forced: batch.status === "needs_review" })})`;
       return r;
     });
@@ -140,7 +141,7 @@ export async function saveBatch(batchId: number) {
 
 /** Saves held stores from the files after all. Runs right away (a few stores at most). */
 export async function releaseHeldStores(dealerId: number, batchId: number, storeNumbers: string[] | "all", userId: number | null) {
-  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary from import_batches where id = ${batchId} and dealer_id = ${dealerId}`;
+  const [batch] = await adminSql<BatchRow[]>`select id, dealer_id, status, biz_date, summary, uploaded_by from import_batches where id = ${batchId} and dealer_id = ${dealerId}`;
   if (!batch || batch.status !== "done") throw new Error("Only the latest saved import for a day can release stores.");
   const parsed = JSON.parse((await getFile(parsedKey(batchId))).toString("utf8")) as ParsedFile[];
   const merged = mergeDay(parsed);

@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { apiAccess } from "@/lib/auth/access";
 
 /** Status for the progress page (polled every second while an import runs). */
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params;
-  const dealer = await getDealer(slug);
-  if (!dealer) return NextResponse.json({ error: "Dealer not found" }, { status: 404 });
+  const access = await apiAccess(slug, { admin: true });
+  if (access instanceof Response) return access;
+  const { dealer } = access;
   const url = new URL(req.url);
   const severity = url.searchParams.get("severity");
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);

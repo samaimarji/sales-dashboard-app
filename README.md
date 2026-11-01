@@ -2,7 +2,7 @@
 
 A sales dashboard web app for Cricket Wireless dealers, built to work for 4 stores or 1,000+.
 
-**Status:** Steps 1–2 of version 1 are done: database, sample data, and the daily upload with reconciliation checks.
+**Status:** Steps 1–5 of version 1 are done: database, sample data, daily upload with checks, screens, settings, and logins with roles.
 All names and numbers in this project are made up.
 
 ## What's here
@@ -27,10 +27,12 @@ All names and numbers in this project are made up.
 Requires Node 20+ and Postgres 16 (or run `docker compose up -d` to start one).
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env.local   # then set DEMO_PASSWORD to a password of your choice
 npm install
 npm run db:reset      # wipes the local database, creates tables, generates sample data (~5 min)
-npm run dev           # then open http://localhost:3000
+npm run dev           # then open http://localhost:3000 and log in, e.g. admin@pacific-coast.demo
+                      # demo logins: owner@demo.local, admin@ / territory@ / market@ / district@ / store@ / rep@pacific-coast.demo
+npm run create-admin  # create a real platform admin login (asks for the password; nothing is saved to files)
 
 # fake Power BI files for trying the upload page:
 npm run samples -- --dealer sunrise --date 2026-10-30

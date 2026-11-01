@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { requireAccess } from "@/lib/auth/access";
 
 export default async function SettingsLayout({ children, params }: { children: React.ReactNode; params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  await requireAccess(slug, { admin: true });
   const tabs = [
-    ["people", "People"], ["goals", "Store goals"], ["targets", "Rate targets"], ["company", "Company"], ["history", "Change history"],
+    ["users", "Users & logins"], ["people", "People"], ["goals", "Store goals"], ["targets", "Rate targets"], ["company", "Company"], ["history", "Change history"],
   ];
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Crumbs, KpiTile, Legend, Pager, TrendBars, cellClass, dailyFromMtd } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { KPI_BY_CODE } from "@/lib/kpis/catalog";
 import { goalsFor } from "@/lib/kpis/goals";
 import { evaluate } from "@/lib/kpis/pace";
@@ -28,14 +28,14 @@ export default async function Overview({ params, searchParams }: {
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const dealer = await getDealer(slug);
-  if (!dealer) notFound();
+  const access = await requireAccess(slug);
+  const { dealer } = access;
   const page = Math.max(1, Number(sp.page) || 1);
   const q = (sp.q ?? "").trim().toLowerCase();
   const sort = sp.sort && KPI_BY_CODE[sp.sort] ? sp.sort : "";
 
   const data = await withDealer(dealer.id, async (sql) => {
-    const ctx = await orgContext(sql, sp.unit);
+    const ctx = await orgContext(sql, sp.unit, access.roots);
     if (!ctx) return null;
     const { current, latestIso, mp } = ctx;
     if (current.level_key === "store") return "store" as const;

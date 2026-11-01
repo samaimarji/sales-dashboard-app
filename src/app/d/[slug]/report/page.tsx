@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import ReportBuilder from "@/components/ReportBuilder";
 import { Crumbs, Legend, Pager, cellClass } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { KPI_BY_CODE, KPI_CATALOG } from "@/lib/kpis/catalog";
 import { goalsFor } from "@/lib/kpis/goals";
 import { evaluate } from "@/lib/kpis/pace";
@@ -22,19 +22,21 @@ type Search = { unit?: string; level?: string; kpis?: string; report?: string; s
 export default async function KpiReport({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Search> }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const dealer = await getDealer(slug);
-  if (!dealer) notFound();
+  const access = await requireAccess(slug);
+  const { dealer } = access;
   const page = Math.max(1, Number(sp.page) || 1);
 
   const data = await withDealer(dealer.id, async (sql) => {
-    const ctx = await orgContext(sql, sp.unit);
+    const ctx = await orgContext(sql, sp.unit, access.roots);
     if (!ctx) return null;
     const { current, levels, latestIso, mp } = ctx;
 
     const reports = await sql<{ id: number; name: string; row_level: string; is_official: boolean; kpis: string[] }[]>`
       select r.id, r.name, r.row_level, r.is_official,
              array(select k.kpi_code from saved_report_kpis k where k.report_id = r.id order by k.position) as kpis
-        from saved_reports r order by r.is_official desc, r.name`;
+        from saved_reports r
+       where r.is_official or r.owner_user_id = ${access.user.id}
+       order by r.is_official desc, r.name`;
     const fromUrl = sp.kpis?.split(",").filter((k) => KPI_BY_CODE[k]) ?? [];
     const active = fromUrl.length ? null : reports.find((r) => String(r.id) === sp.report) ?? reports.find((r) => r.is_official) ?? null;
     const kpis = fromUrl.length ? fromUrl : active?.kpis.length ? active.kpis : DEFAULT_KPIS;
@@ -103,7 +105,7 @@ export default async function KpiReport({ params, searchParams }: { params: Prom
 
       <div className="mt-3">
         <ReportBuilder slug={slug} unitId={current.id} color={dealer.primary_color} reportName={title} reportId={active?.id ?? null}
-          canDelete={!!active && !active.is_official} selected={kpis} level={level}
+          canDelete={!!active && (!active.is_official || access.isAdmin)} canShare={access.isAdmin} selected={kpis} level={level}
           levels={levelOptions.map((l) => ({ key: l, label: levelLabel(l) }))}
           kpis={KPI_CATALOG.filter((k) => k.code !== "open_stores").map((k) => ({ code: k.code, label: k.label, category: k.category, description: k.description }))} />
       </div>

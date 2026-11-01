@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { combinePeople } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function CombinePeople({ params, searchParams }: {
   const { slug } = await params;
   const raw = (await searchParams).ids;
   const ids = [...new Set((Array.isArray(raw) ? raw : raw ? [raw] : []).map(Number).filter(Boolean))].slice(0, 10);
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   const people = await withDealer(dealer.id, (sql) => sql<{ id: number; display_name: string; employee_code: string | null; hidden_from_rep_views: boolean; stores: string | null; spellings: string[]; days: number }[]>`
     select p.id, p.display_name, p.employee_code, p.hidden_from_rep_views,
            (select string_agg(u.code, ' + ' order by u.code) from store_assignments a join org_units u on u.id = a.store_id where a.person_id = p.id) as stores,

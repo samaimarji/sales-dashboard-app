@@ -1,5 +1,5 @@
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { saveCompany } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 /** Name, colors, logo and what this dealer calls each level of its org tree. */
 export default async function CompanySettings({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   const levels = await withDealer(dealer.id, (sql) => sql<{ level_key: string; label: string; enabled: boolean }[]>`
     select level_key, label, enabled from dealer_org_levels order by depth`);
   const input = "mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm";

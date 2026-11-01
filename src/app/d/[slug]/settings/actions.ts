@@ -4,24 +4,25 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type postgres from "postgres";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { KPI_BY_CODE, STORED_KPIS } from "@/lib/kpis/catalog";
 import { combineExpr } from "@/lib/kpis/sql";
 
 /**
- * Settings changes. Every change is written to the audit log ("Change history").
- * Logins come in step 5; until then the user on each entry is empty.
+ * Settings changes: dealer admins only. Every change is written to the audit log
+ * ("Change history") with who made it.
  */
 
-async function dealerFrom(form: FormData) {
-  const dealer = await getDealer(String(form.get("slug")));
-  if (!dealer) throw new Error("Dealer not found");
-  return dealer;
+type Actor = { id: number; slug: string; name: string; userId: number };
+
+async function dealerFrom(form: FormData): Promise<Actor> {
+  const access = await requireAccess(String(form.get("slug")), { admin: true });
+  return { id: access.dealer.id, slug: access.dealer.slug, name: access.dealer.name, userId: access.user.id };
 }
 
-async function audit(sql: postgres.TransactionSql, dealerId: number, action: string, entity: string, entityId: string | number | null, details: object) {
+async function audit(sql: postgres.TransactionSql, actor: Actor, action: string, entity: string, entityId: string | number | null, details: object) {
   await sql`insert into audit_log (dealer_id, user_id, action, entity, entity_id, details)
-            values (${dealerId}, null, ${action}, ${entity}, ${entityId === null ? null : String(entityId)}, ${sql.json(details as never)})`;
+            values (${actor.id}, ${actor.userId}, ${action}, ${entity}, ${entityId === null ? null : String(entityId)}, ${sql.json(details as never)})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,7 +36,7 @@ export async function setHidden(form: FormData) {
   await withDealer(dealer.id, async (sql) => {
     const [p] = await sql<{ display_name: string }[]>`
       update people set hidden_from_rep_views = ${hidden} where id = ${personId} returning display_name`;
-    if (p) await audit(sql, dealer.id, hidden ? "person.hidden" : "person.shown", "person", personId, { name: p.display_name });
+    if (p) await audit(sql, dealer, hidden ? "person.hidden" : "person.shown", "person", personId, { name: p.display_name });
   });
   revalidatePath(`/d/${dealer.slug}`, "layout");
 }
@@ -81,7 +82,7 @@ export async function combinePeople(form: FormData) {
     const hidden = people.some((p) => p.hidden_from_rep_views);
     await sql`update people set hidden_from_rep_views = ${hidden} where id = ${keep}`;
     await sql`update people set merged_into_id = ${keep}, active = false where id = any(${others})`;
-    await audit(sql, dealer.id, "person.combined", "person", keep, {
+    await audit(sql, dealer, "person.combined", "person", keep, {
       kept: people.find((p) => p.id === keep), combined: people.filter((p) => p.id !== keep),
     });
   });
@@ -109,7 +110,7 @@ export async function saveGoals(form: FormData) {
     if (n !== null && (!Number.isFinite(n) || n < 0)) continue;
     changes.push({ unit: Number(m[1]), kpi: m[2], target: n });
   }
-  await saveTargets(dealer.id, month, changes, "goals.changed");
+  await saveTargets(dealer, month, changes, "goals.changed");
   revalidatePath(`/d/${dealer.slug}`, "layout");
 }
 
@@ -129,12 +130,13 @@ export async function saveRateTargets(form: FormData) {
     if (n !== null && (!Number.isFinite(n) || n < 0)) continue;
     changes.push({ unit: rootId, kpi: m[1], target: n });
   }
-  await saveTargets(dealer.id, month, changes, "targets.changed");
+  await saveTargets(dealer, month, changes, "targets.changed");
   revalidatePath(`/d/${dealer.slug}`, "layout");
 }
 
-async function saveTargets(dealerId: number, month: string, changes: { unit: number; kpi: string; target: number | null }[], action: string) {
+async function saveTargets(actor: Actor, month: string, changes: { unit: number; kpi: string; target: number | null }[], action: string) {
   if (!changes.length) return;
+  const dealerId = actor.id;
   await withDealer(dealerId, async (sql) => {
     for (const c of changes) {
       if (c.target === null) {
@@ -146,7 +148,7 @@ async function saveTargets(dealerId: number, month: string, changes: { unit: num
           on conflict (dealer_id, org_unit_id, month, kpi_code, goal_set) do update set target = excluded.target, source = 'manual'`;
       }
     }
-    await audit(sql, dealerId, action, "kpi_goals", month, { month, changes: changes.slice(0, 200), count: changes.length });
+    await audit(sql, actor, action, "kpi_goals", month, { month, changes: changes.slice(0, 200), count: changes.length });
   });
 }
 
@@ -161,7 +163,7 @@ export async function copyGoals(form: FormData) {
       select dealer_id, org_unit_id, ${to}::date, kpi_code, target, 'manual', goal_set from kpi_goals
        where month = ${from} and goal_set = 'dealer'
       on conflict do nothing`;
-    await audit(sql, dealer.id, "goals.copied", "kpi_goals", to, { from, to, count: r.count });
+    await audit(sql, dealer, "goals.copied", "kpi_goals", to, { from, to, count: r.count });
   });
   revalidatePath(`/d/${dealer.slug}`, "layout");
 }
@@ -172,21 +174,22 @@ export async function copyGoals(form: FormData) {
 
 export async function saveCompany(form: FormData) {
   const dealer = await dealerFrom(form);
+  const current = (await requireAccess(dealer.slug, { admin: true })).dealer;
   const name = String(form.get("name") ?? "").trim().slice(0, 80);
   const color = (v: FormDataEntryValue | null, fallback: string) => (/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : fallback);
   const logo = String(form.get("logo_url") ?? "").trim();
   if (logo && !/^https:\/\//.test(logo)) throw new Error("The logo address must start with https://");
   await withDealer(dealer.id, async (sql) => {
     const before = await sql`select name, primary_color, accent_color, logo_url from dealers where id = ${dealer.id}`;
-    await sql`update dealers set name = ${name || dealer.name}, primary_color = ${color(form.get("primary_color"), dealer.primary_color)},
-                     accent_color = ${color(form.get("accent_color"), dealer.accent_color)}, logo_url = ${logo || null}
+    await sql`update dealers set name = ${name || dealer.name}, primary_color = ${color(form.get("primary_color"), current.primary_color)},
+                     accent_color = ${color(form.get("accent_color"), current.accent_color)}, logo_url = ${logo || null}
                where id = ${dealer.id}`;
     for (const level of ["dealer", "region", "area", "district", "store"]) {
       const label = String(form.get(`label:${level}`) ?? "").trim().slice(0, 40);
       if (label) await sql`update dealer_org_levels set label = ${label} where level_key = ${level}`;
     }
     await sql`update org_units set name = ${name || dealer.name} where level_key = 'dealer'`;
-    await audit(sql, dealer.id, "company.changed", "dealer", dealer.id, { before: before[0], after: { name, logo_url: logo || null } });
+    await audit(sql, dealer, "company.changed", "dealer", dealer.id, { before: before[0], after: { name, logo_url: logo || null } });
   });
   revalidatePath(`/`, "layout");
 }

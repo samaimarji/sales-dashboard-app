@@ -9,10 +9,12 @@
     "lint": "eslint",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "db:seed": "tsx --env-file=.env.local scripts/seed-demo.ts",
-    "db:reset": "tsx --env-file=.env.local scripts/reset.ts && npm run db:migrate && npm run db:seed",
+    "db:reset": "tsx --env-file=.env.local scripts/reset.ts && npm run db:migrate && npm run db:seed && npm run db:demo-users",
     "samples": "tsx --env-file=.env.local scripts/make-sample-exports.ts",
     "worker": "tsx --env-file=.env.local scripts/worker.ts",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "db:demo-users": "tsx --env-file=.env.local scripts/seed-users.ts",
+    "create-admin": "tsx --env-file=.env.local scripts/create-admin.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

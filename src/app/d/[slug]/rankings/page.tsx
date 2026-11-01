@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Crumbs, Pager, StatusPill } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { KPI_BY_CODE } from "@/lib/kpis/catalog";
 import { statusOf } from "@/lib/kpis/pace";
 import { RANKING_KPIS } from "@/lib/kpis/sets";
@@ -22,13 +22,13 @@ const MIN_CHANCES = 10;
 export default async function Rankings({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Search> }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const dealer = await getDealer(slug);
-  if (!dealer) notFound();
+  const access = await requireAccess(slug);
+  const { dealer } = access;
   const kpi = sp.kpi && RANKING_KPIS.includes(sp.kpi) ? sp.kpi : "activations";
   const page = Math.max(1, Number(sp.page) || 1);
 
   const data = await withDealer(dealer.id, async (sql) => {
-    const ctx = await orgContext(sql, sp.unit);
+    const ctx = await orgContext(sql, sp.unit, access.roots);
     if (!ctx) return null;
     const { current, levels, latestIso, mp } = ctx;
     const below = levels.slice(levels.indexOf(current.level_key) + 1);

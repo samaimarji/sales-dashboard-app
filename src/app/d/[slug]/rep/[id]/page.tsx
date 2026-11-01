@@ -3,7 +3,7 @@ import CardActions from "@/components/CardActions";
 import { ProgressCard } from "@/components/ProgressCard";
 import { Crumbs, dailyFromMtd } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { canSeePerson, requireAccess } from "@/lib/auth/access";
 import { repGoals } from "@/lib/kpis/goals";
 import { CARD_KPIS } from "@/lib/kpis/sets";
 import { combineExpr } from "@/lib/kpis/sql";
@@ -19,8 +19,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function RepCard({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params;
-  const dealer = await getDealer(slug);
-  if (!dealer) notFound();
+  const access = await requireAccess(slug, { allowRep: true });
+  const { dealer } = access;
 
   const data = await withDealer(dealer.id, async (sql) => {
     const [person] = await sql<{ id: number; display_name: string; hidden_from_rep_views: boolean; merged_into_id: number | null }[]>`
@@ -28,6 +28,7 @@ export default async function RepCard({ params }: { params: Promise<{ slug: stri
     if (!person) return null;
     if (person.merged_into_id) return { mergedInto: person.merged_into_id } as const;
     if (person.hidden_from_rep_views) return null;
+    if (!(await canSeePerson(sql, access, person.id))) return null;
     const ctx0 = await orgContext(sql, null);
     if (!ctx0) return null;
     const { latestIso, mp } = ctx0;
@@ -38,7 +39,7 @@ export default async function RepCard({ params }: { params: Promise<{ slug: stri
        where r.person_id = ${person.id} and r.biz_date = ${latestIso}
        order by acts desc, u.code`;
     // Breadcrumbs follow the store where they sold the most.
-    const ctx = await orgContext(sql, stores[0]?.store_id ?? null);
+    const ctx = await orgContext(sql, stores[0]?.store_id ?? null, access.isRepOnly ? undefined : access.roots);
     const [{ m }] = await sql<{ m: KpiMap | null }[]>`
       select ${sql.unsafe(combineExpr([...CARD_KPIS, "sales_per_10_bill_pays", "net_adds"], "m"))} as m
         from rep_daily_mtd where person_id = ${person.id} and biz_date = ${latestIso}`;
@@ -57,7 +58,7 @@ export default async function RepCard({ params }: { params: Promise<{ slug: stri
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8 print:max-w-none print:px-0 print:py-0">
-      <Crumbs crumbs={ctx.crumbs} labels={ctx.labels} href={(u) => unitHref(slug, u)} />
+      {!access.isRepOnly && <Crumbs crumbs={ctx.crumbs} labels={ctx.labels} href={(u) => unitHref(slug, u)} />}
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Rep progress card · {dealer.name}</div>

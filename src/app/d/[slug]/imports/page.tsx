@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export default async function ImportHistory({ params, searchParams }: {
 }) {
   const { slug } = await params;
   const page = Math.max(1, Number((await searchParams).page) || 1);
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   const { rows, total } = await withDealer(dealer.id, async (sql) => {
     const [{ total }] = await sql<{ total: number }[]>`select count(*)::int as total from import_batches`;
     const rows = await sql<{ id: number; biz_date: Date; status: string; source: string; created_at: Date; files: number; errors: number; held: number }[]>`

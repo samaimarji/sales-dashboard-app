@@ -1,5 +1,5 @@
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { KPI_BY_CODE } from "@/lib/kpis/catalog";
 import { fmtDate } from "@/lib/org";
 import { saveRateTargets } from "../actions";
@@ -14,7 +14,7 @@ const TARGET_KPIS = [
 /** Company-wide targets for rates. A target stays in effect for later months until it's changed. */
 export default async function TargetSettings({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   const data = await withDealer(dealer.id, async (sql) => {
     const [{ latest }] = await sql<{ latest: Date | null }[]>`select max(biz_date) as latest from org_rollup_daily`;
     const month = (latest ?? new Date()).toISOString().slice(0, 8) + "01";

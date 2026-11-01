@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Pager } from "@/components/ui";
 import { withDealer } from "@/lib/db";
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { withParams } from "@/lib/links";
 import { setHidden } from "../actions";
 
@@ -13,7 +13,7 @@ type Search = { q?: string; show?: string; page?: string; done?: string };
 export default async function PeopleSettings({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Search> }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   const page = Math.max(1, Number(sp.page) || 1);
   const q = (sp.q ?? "").trim().toLowerCase();
   const show = ["hidden", "multi", "new"].includes(sp.show ?? "") ? sp.show! : "all";

@@ -1,10 +1,10 @@
-import { getDealer } from "@/lib/dealers";
+import { requireAccess } from "@/lib/auth/access";
 import { FILE_TYPES } from "@/lib/imports/file-types";
 import UploadForm from "@/components/UploadForm";
 
 export default async function UploadPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const dealer = (await getDealer(slug))!;
+  const { dealer } = await requireAccess(slug, { admin: true });
   return (
     <main className="mx-auto max-w-3xl px-6 py-8">
       <h1 className="text-2xl font-semibold">Daily upload</h1>
