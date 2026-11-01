@@ -7,16 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
-    "db:seed": "tsx --env-file=.env.local scripts/seed-demo.ts",
-    "db:reset": "tsx --env-file=.env.local scripts/reset.ts && npm run db:migrate && npm run db:seed && npm run db:demo-users",
-    "samples": "tsx --env-file=.env.local scripts/make-sample-exports.ts",
-    "worker": "tsx --env-file=.env.local scripts/worker.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
+    "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed-demo.ts",
+    "db:reset": "tsx --env-file-if-exists=.env.local scripts/reset.ts && npm run db:migrate && npm run db:seed && npm run db:demo-users",
+    "samples": "tsx --env-file-if-exists=.env.local scripts/make-sample-exports.ts",
+    "worker": "tsx --env-file-if-exists=.env.local scripts/worker.ts",
     "test": "tsx --test tests/*.test.ts",
-    "db:demo-users": "tsx --env-file=.env.local scripts/seed-users.ts",
-    "create-admin": "tsx --env-file=.env.local scripts/create-admin.ts",
-    "db:extend-history": "tsx --env-file=.env.local scripts/extend-history.ts",
-    "speed-test": "tsx --env-file=.env.local scripts/speed-test.ts"
+    "db:demo-users": "tsx --env-file-if-exists=.env.local scripts/seed-users.ts",
+    "create-admin": "tsx --env-file-if-exists=.env.local scripts/create-admin.ts",
+    "db:extend-history": "tsx --env-file-if-exists=.env.local scripts/extend-history.ts",
+    "speed-test": "tsx --env-file-if-exists=.env.local scripts/speed-test.ts",
+    "start:all": "node scripts/start-all.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -24,7 +25,8 @@
     "pg-boss": "^12.38.0",
     "postgres": "^4.0.0",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -35,7 +37,9 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.28",
     "tailwindcss": "^4",
-    "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }

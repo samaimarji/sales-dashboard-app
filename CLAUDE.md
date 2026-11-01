@@ -74,6 +74,13 @@
 - In production run the import worker as its own process (`IMPORT_WORKER=off` on the web server, `npm run worker`),
   otherwise Excel parsing briefly slows pages during an upload.
 
+## Hosting (Railway)
+- Guide for the owner: `docs/DEPLOY-RAILWAY.md`. One service runs `npm run start:all` (web + worker as separate
+  processes + `scripts/bootstrap.ts`); `railway.json` sets build, pre-deploy migrate, start and health check (`/login`).
+- Hosted env: `DATABASE_ADMIN_URL` (owner), `APP_DB_PASSWORD` (app role password; app URL derived in `src/lib/db.ts`),
+  `ADMIN_EMAIL`/`ADMIN_NAME`/`ADMIN_PASSWORD` (first platform admin, once), `DEMO_PASSWORD` + `SEED_DEMO=1` (demo data).
+- Uploaded files live in the `file_blobs` table (`src/lib/storage.ts`). The demo platform-admin login is never created in production.
+
 ## Roadmap
 v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens ✅ (4) hide/merge settings ✅
 (5) logins and roles ✅ (6) speed test at 1,000 stores ✅ (see docs/SPEED.md).

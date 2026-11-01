@@ -19,7 +19,22 @@ function connect(url: string | undefined, name: string) {
   return postgres(url, { max: 10, idle_timeout: 30 });
 }
 
-export const appSql = (globalThis.__ddAppSql ??= connect(process.env.DATABASE_URL, "DATABASE_URL"));
+/**
+ * When hosted, only the owner connection is given (DATABASE_ADMIN_URL) plus the app
+ * role's password (APP_DB_PASSWORD); the app connection is built from the two.
+ */
+function appUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const admin = process.env.DATABASE_ADMIN_URL;
+  const pw = process.env.APP_DB_PASSWORD;
+  if (!admin || !pw) return undefined;
+  const u = new URL(admin);
+  u.username = "dd_app";
+  u.password = pw;
+  return u.toString();
+}
+
+export const appSql = (globalThis.__ddAppSql ??= connect(appUrl(), "DATABASE_URL (or DATABASE_ADMIN_URL + APP_DB_PASSWORD)"));
 export const adminSql = (globalThis.__ddAdminSql ??= connect(process.env.DATABASE_ADMIN_URL, "DATABASE_ADMIN_URL"));
 
 /** Runs `fn` in a transaction where the database only exposes one dealer's rows. */

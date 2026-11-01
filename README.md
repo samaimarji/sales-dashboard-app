@@ -22,6 +22,10 @@ All names and numbers in this project are made up.
 - **Postgres:** with row-level security per dealer, an `ltree` org tree, and month-partitioned history.
 - **Pre-calculated totals:** `org_rollup_daily` stores every org level's totals per day, so screens stay fast at 1,000 stores.
 
+## Putting it online
+
+See [docs/DEPLOY-RAILWAY.md](docs/DEPLOY-RAILWAY.md): a click-by-click guide, no command line needed.
+
 ## Running it on a computer (developer notes)
 
 Requires Node 20+ and Postgres 16 (or run `docker compose up -d` to start one).

@@ -42,6 +42,11 @@ async function main() {
           sort = excluded.sort, description = excluded.description`;
     }
   });
+  // Hosted: the app role gets the password from APP_DB_PASSWORD (never the development default).
+  if (process.env.APP_DB_PASSWORD) {
+    await sql.unsafe(`alter role dd_app password '${process.env.APP_DB_PASSWORD.replace(/'/g, "''")}'`);
+    console.log("App database role password set.");
+  }
   const codes = KPI_CATALOG.map((k) => k.code);
   const removed = await sql`delete from kpi_catalog where code <> all(${codes}) returning code`;
   if (removed.length) console.log(`Removed KPIs no longer in the catalog: ${removed.map((r) => r.code).join(", ")}`);

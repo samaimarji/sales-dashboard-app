@@ -43,7 +43,10 @@ async function main() {
     rows.push([s.email, s.platform ? "Platform admin" : `${s.role} (${dealerSlug})`]);
   };
 
-  await add(null, { email: "owner@demo.local", name: "Platform Owner", platform: true });
+  // A demo platform admin (sees every dealer) only on a developer's own machine, never on a hosted site
+  // where the demo password may be shared.
+  if (process.env.NODE_ENV !== "production") await add(null, { email: "owner@demo.local", name: "Platform Owner", platform: true });
+  else await sql`delete from users where lower(email) = 'owner@demo.local'`;
   // Pacific Coast Mobile: one login per level, all along the same branch of the tree.
   const store = "id = (select org_unit_id from stores where store_number = '1852')";
   await add("pacific-coast", { email: "admin@pacific-coast.demo", name: "Pat Admin", role: "dealer_admin", unit: "level_key = 'dealer'" });
