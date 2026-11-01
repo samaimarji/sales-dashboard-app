@@ -40,7 +40,16 @@
   max(5, 20%) of stores failing, hold the whole day (`needs_review`). Issue report: `/api/d/<slug>/imports/<id>/report` (CSV).
 - Employee IDs match case-insensitively. Unknown stores are added under the company level (`auto_added`).
 
+## Screens (step 3)
+- Overview `/d/<slug>?unit=` (any level above store), store card `/store/<id>`, rep card `/rep/<personId>`,
+  KPI report `/report` (checklist builder, saved reports), rankings `/rankings`, opportunities `/opportunities`.
+- Pace (`src/lib/kpis/pace.ts`): volume KPIs vs goal × share of month; rates vs target. Colors: blue 150%+, green on pace,
+  orange 70%+, red behind (same as the owner's sheet).
+- Goals (`src/lib/kpis/goals.ts`): count goals = store goals added up; rate targets = nearest ancestor's. Rep goals =
+  store goal split evenly among people selling there.
+- Rep lists always go through `repsUnder()` (`src/lib/reps.ts`), which excludes hidden people and combines multi-store reps.
+
 ## Roadmap
-v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens (4) hide/merge settings
+v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens ✅ (4) hide/merge settings
 (5) logins and roles (6) speed test at 1,000 stores.
 Later: schedule planner (labor budget and lunch rules), commission calculator, email/Drive imports, billing per store.

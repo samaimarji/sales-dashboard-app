@@ -11,12 +11,15 @@ export default async function DealerLayout({ children, params }: {
   if (!dealer) notFound();
   const nav = [
     { href: `/d/${slug}`, label: "Overview" },
+    { href: `/d/${slug}/report`, label: "KPI report" },
+    { href: `/d/${slug}/rankings`, label: "Rankings" },
+    { href: `/d/${slug}/opportunities`, label: "Opportunities" },
     { href: `/d/${slug}/upload`, label: "Upload" },
     { href: `/d/${slug}/imports`, label: "Import history" },
   ];
   return (
     <div className="min-h-screen">
-      <header className="border-b border-gray-200 bg-white">
+      <header className="border-b border-gray-200 bg-white print:hidden">
         <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3">
           <Link href={`/d/${slug}`} className="flex items-center gap-2 font-semibold">
             <span className="h-6 w-6 rounded-md" style={{ background: dealer.primary_color }} />

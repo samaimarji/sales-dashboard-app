@@ -40,6 +40,10 @@ export interface Kpi {
   higherIsBetter: boolean;
   /** false = calculated from other KPIs, not stored */
   stored: boolean;
+  /** calculated KPIs that add other KPIs together (e.g. boxes = activations + upgrades) */
+  parts?: string[];
+  /** multiply a ratio (e.g. 10 for "per 10 bill payments") */
+  scale?: number;
   sources: KpiSource[];
   description?: string;
 }
@@ -83,6 +87,10 @@ export const KPI_CATALOG: Kpi[] = [
   count("net_adds", "Net Adds", "Sales", [src("rank", "Net Adds"), src("retention", "Net Adds")]),
   count("net_disconnects", "Net Disconnects", "Sales", [src("rank", "Net Disconnects"), src("retention", "Net Disconnects")],
     { description: "Reported as a negative number, as in the Power BI files." }),
+  count("boxes", "Total Boxes", "Sales", [], { stored: false, parts: ["activations", "upgrades"],
+    description: "Activations + upgrades." }),
+  ratio("sales_per_10_bill_pays", "Sales per 10 Bill Payments", "Sales", "boxes", "bill_payments", [],
+    { unit: "decimal", scale: 10, description: "Boxes for every 10 bill payment customers: how well walk-in traffic turns into sales." }),
   count("open_stores", "Open Stores", "Sales", [src("rank", "BOP Open Stores")],
     { description: "1 per open store. Used for per-door rates." }),
   count("port_in", "Port In", "Sales", [src("matrix", "Port In")]),
@@ -147,6 +155,8 @@ export const KPI_CATALOG: Kpi[] = [
 
   // --- PPP / financing -----------------------------------------------------------
   count("ppp_links_sent", "PPP Application Links Sent", "PPP & Financing", [src("matrix", "Total PPP Application Links Sent")]),
+  count("ppp_funded", "PPP Leases Funded", "PPP & Financing", [], { stored: false, parts: ["bread_leases", "progressive_leases"],
+    description: "Bread + Progressive leases funded." }),
   count("ppp_apps_submitted", "PPP Applications Submitted", "PPP & Financing", [src("mtd", "PPP & Payment › PPP Applications Submitted")]),
   money("ppp_accessory_sales", "PPP Accessories Sales", "PPP & Financing", [src("mtd", "Accessories › PPP Accessories Sales")]),
   count("progressive_rebates", "Progressive Lease Vendor Rebate", "PPP & Financing", [src("mtd", "PPP & Payment › Progressive Lease Vendor Rebate")]),
@@ -206,6 +216,8 @@ export const KPI_CATALOG: Kpi[] = [
     src("mtd", "CHI › Addresses Eligible for CHI"), src("chi", "Addresses Eligible"),
   ]),
   count("chi_credit_checked", "Addresses Credit Checked", "Home Internet", [src("chi", "Addresses Credit Checked")]),
+  ratio("chi_check_rate", "CHI Checks per Bill Payment", "Home Internet", "chi_addresses_checked", "bill_payments", [],
+    { description: "Goal: check an address for every bill payment customer." }),
   ratio("chi_credit_check_rate", "Credit Checks % of Address Checks", "Home Internet", "chi_credit_checked", "chi_addresses_checked",
     [src("chi", "Credit Checks % of Address Checks")]),
   count("chi_adv_payment_required", "Advanced Payment Required", "Home Internet", [src("chi", "Advanced Payment Required")]),

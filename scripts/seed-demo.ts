@@ -598,7 +598,8 @@ async function seedDealer(cfg: DealerConfig, dealerIndex: number) {
       goal(s.storeId, month, "activations", Math.round(a * between(0.85, 1.0)), "import", "cricket");
       goal(s.storeId, month, "wireless_gross_adds", Math.round(a * between(0.8, 0.95)), "import", "cricket");
     }
-    for (const [kpi, target] of [["autopay_rate", 0.75], ["protect_rate", 0.4], ["upgrade_plus_rate", 0.33], ["wtr", 0.85], ["act_fees_waived_rate", 0.08]] as const) {
+    for (const [kpi, target] of [["autopay_rate", 0.75], ["protect_rate", 0.4], ["upgrade_plus_rate", 0.33], ["wtr", 0.85], ["act_fees_waived_rate", 0.08],
+      ["ild_rate", 0.1], ["multiline_pct", 0.55], ["add_a_line_pct", 0.35], ["max_attach_rate", 0.12], ["chi_check_rate", 0.6]] as const) {
       goal(root.id, month, kpi, target, "manual");
     }
   }
