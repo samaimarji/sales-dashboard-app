@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import CardActions from "@/components/CardActions";
 import { ProgressCard } from "@/components/ProgressCard";
 import { Crumbs, dailyFromMtd } from "@/components/ui";
@@ -23,9 +23,11 @@ export default async function RepCard({ params }: { params: Promise<{ slug: stri
   if (!dealer) notFound();
 
   const data = await withDealer(dealer.id, async (sql) => {
-    const [person] = await sql<{ id: number; display_name: string; hidden_from_rep_views: boolean }[]>`
-      select id, display_name, hidden_from_rep_views from people where id = ${Number(id)}`;
-    if (!person || person.hidden_from_rep_views) return null;
+    const [person] = await sql<{ id: number; display_name: string; hidden_from_rep_views: boolean; merged_into_id: number | null }[]>`
+      select id, display_name, hidden_from_rep_views, merged_into_id from people where id = ${Number(id)}`;
+    if (!person) return null;
+    if (person.merged_into_id) return { mergedInto: person.merged_into_id } as const;
+    if (person.hidden_from_rep_views) return null;
     const ctx0 = await orgContext(sql, null);
     if (!ctx0) return null;
     const { latestIso, mp } = ctx0;
@@ -50,6 +52,7 @@ export default async function RepCard({ params }: { params: Promise<{ slug: stri
     return { person, ctx: ctx ?? ctx0, stores, m, goals, trend, teamM };
   });
   if (!data) notFound();
+  if ("mergedInto" in data) redirect(`/d/${slug}/rep/${data.mergedInto}`);
   const { person, ctx, stores, m, goals, trend, teamM } = data;
 
   return (

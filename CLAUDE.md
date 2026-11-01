@@ -49,7 +49,15 @@
   store goal split evenly among people selling there.
 - Rep lists always go through `repsUnder()` (`src/lib/reps.ts`), which excludes hidden people and combines multi-store reps.
 
+## Settings (step 4)
+- `/d/<slug>/settings/*`: People (hide from rep views, combine duplicates), Store goals (monthly, per store; copy last month),
+  Rate targets (company-wide, carry forward to later months), Company (name, colors, logo URL, level names), Change history.
+- All changes are server actions in `src/app/d/[slug]/settings/actions.ts` and write `audit_log`.
+- Combining people moves rep rows/aliases/assignments to the kept person (same store+day rows are added together) and sets
+  `people.merged_into_id`; imports follow `merged_into_id` when matching by employee ID. Hidden wins if either was hidden.
+- Goals typed in Settings (`source = 'manual'`) are never overwritten by imported MTD goals.
+
 ## Roadmap
-v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens ✅ (4) hide/merge settings
+v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens ✅ (4) hide/merge settings ✅
 (5) logins and roles (6) speed test at 1,000 stores.
 Later: schedule planner (labor budget and lunch rules), commission calculator, email/Drive imports, billing per store.

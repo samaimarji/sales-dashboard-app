@@ -7,7 +7,8 @@ export type GoalMap = Map<number, Record<string, number>>;
 /**
  * Monthly goals for org units:
  *  - counts and dollars: the store goals under the unit, added up
- *  - rates: the closest goal set at the unit or above (usually one company-wide target)
+ *  - rates: the closest target set at the unit or above (usually one company-wide target);
+ *    a target stays in effect for later months until it's changed
  */
 export async function goalsFor(sql: Sql, unitIds: number[], month: string): Promise<GoalMap> {
   const out: GoalMap = new Map(unitIds.map((id) => [id, {}]));
@@ -24,9 +25,9 @@ export async function goalsFor(sql: Sql, unitIds: number[], month: string): Prom
     select distinct on (u.id, g.kpi_code) u.id as unit_id, g.kpi_code, g.target
       from org_units u
       join org_units a on a.path @> u.path
-      join kpi_goals g on g.org_unit_id = a.id and g.month = ${month} and g.goal_set = 'dealer'
+      join kpi_goals g on g.org_unit_id = a.id and g.month <= ${month} and g.goal_set = 'dealer'
      where u.id = any(${unitIds})
-     order by u.id, g.kpi_code, nlevel(a.path) desc`;
+     order by u.id, g.kpi_code, nlevel(a.path) desc, g.month desc`;
   for (const r of rates) if (KPI_BY_CODE[r.kpi_code]?.agg !== "sum") out.get(r.unit_id)![r.kpi_code] = Number(r.target);
   return out;
 }

@@ -16,6 +16,7 @@ export default async function DealerLayout({ children, params }: {
     { href: `/d/${slug}/opportunities`, label: "Opportunities" },
     { href: `/d/${slug}/upload`, label: "Upload" },
     { href: `/d/${slug}/imports`, label: "Import history" },
+    { href: `/d/${slug}/settings`, label: "Settings" },
   ];
   return (
     <div className="min-h-screen">

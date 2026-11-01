@@ -26,7 +26,8 @@ async function resolvePeople(sql: Tx, dealerId: number, merged: MergedDay, dryRu
   const byCode = new Map<string, number>();
   if (codes.length) {
     for (const p of await sql<{ id: number; code: string }[]>`
-        select id, lower(employee_code) as code from people where lower(employee_code) = any(${codes})`) byCode.set(p.code, p.id);
+        select coalesce(merged_into_id, id) as id, lower(employee_code) as code
+          from people where lower(employee_code) = any(${codes})`) byCode.set(p.code, p.id); // follow combined records
   }
 
   const toCreate = new Map<string, { display_name: string; employee_code: string | null }>();
@@ -178,7 +179,8 @@ export async function saveDay(sql: Tx, dealerId: number, batchId: number, bizDat
     await sql`
       insert into kpi_goals ${sql(uniqueGoals.slice(i, i + 2000))}
       on conflict (dealer_id, org_unit_id, month, kpi_code, goal_set)
-      do update set target = excluded.target, source = 'import'`;
+      do update set target = excluded.target, source = 'import'
+      where kpi_goals.source <> 'manual'`; // goals typed in Settings win over the files
   }
 
   await sql`select refresh_rollups(${dealerId}, ${bizDate}::date, ${bizDate}::date)`;
