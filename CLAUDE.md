@@ -26,6 +26,8 @@
 - `npm run db:reset`: wipe the local DB, migrate, seed and add demo logins (~5 min)
 - `npm run db:migrate`, `npm run db:seed`, `npm run dev`, `npm run build`, `npm run lint`
 - `npm run samples -- --dealer sunrise --date 2026-10-30 [--break]`: write fake Power BI exports to `samples/`
+- `npm run speed-test`: times every screen per role + 25 at once + a 1,000-store upload (app must be running);
+  `npm run db:extend-history` grows the demo dealer to 12 months first
 - `npm test`: importer tests (generate the sunrise and broken pacific-coast samples first)
 
 ## Daily import (step 2)
@@ -67,7 +69,12 @@
 - Demo logins: `npm run db:demo-users` (password from `DEMO_PASSWORD` in `.env.local`). First real admin: `npm run create-admin`.
 - `src/middleware.ts` only checks the cookie exists; real checks are server-side on every request.
 
+## Speed (step 6)
+- Budget: every screen under 2 s on the 1,000-store demo with 12 months of history (~4M rep rows). Current: 0.01–0.47 s.
+- In production run the import worker as its own process (`IMPORT_WORKER=off` on the web server, `npm run worker`),
+  otherwise Excel parsing briefly slows pages during an upload.
+
 ## Roadmap
 v1: (1) setup + DB + sample data ✅ (2) daily upload with reconciliation ✅ (3) screens ✅ (4) hide/merge settings ✅
-(5) logins and roles ✅ (6) speed test at 1,000 stores.
+(5) logins and roles ✅ (6) speed test at 1,000 stores ✅ (see docs/SPEED.md).
 Later: schedule planner (labor budget and lunch rules), commission calculator, email/Drive imports, billing per store.

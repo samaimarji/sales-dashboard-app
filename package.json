@@ -14,7 +14,9 @@
     "worker": "tsx --env-file=.env.local scripts/worker.ts",
     "test": "tsx --test tests/*.test.ts",
     "db:demo-users": "tsx --env-file=.env.local scripts/seed-users.ts",
-    "create-admin": "tsx --env-file=.env.local scripts/create-admin.ts"
+    "create-admin": "tsx --env-file=.env.local scripts/create-admin.ts",
+    "db:extend-history": "tsx --env-file=.env.local scripts/extend-history.ts",
+    "speed-test": "tsx --env-file=.env.local scripts/speed-test.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

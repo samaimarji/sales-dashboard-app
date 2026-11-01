@@ -46,17 +46,28 @@ export default async function Rankings({ params, searchParams }: { params: Promi
     }
 
     const value = valueExpr(kpi, "r.m");
-    const goal = sql`(select sum(g.target) from kpi_goals g join org_units st on st.id = g.org_unit_id
-                       where st.path <@ u.path and g.kpi_code = ${kpi} and g.month = ${mp.month} and g.goal_set = 'dealer')`;
     const rows = await sql<{ id: number; name: string; code: string | null; level_key: string; parent: string | null; m: KpiMap; pct: string | null; rank: number; total: number }[]>`
-      with x as (
+      with units as (
+        select u.id, u.name, u.code, u.level_key, u.path, u.parent_id from org_units u
+         where u.level_key = ${level} and u.path <@ ${current.path}::ltree
+      ),
+      -- store goals added up to each unit in one pass (only needed for "% of today's goal")
+      goals as (
+        select un.id, sum(g.target) as goal
+          from kpi_goals g
+          join org_units st on st.id = g.org_unit_id and st.level_key = 'store'
+          join units un on un.path @> st.path
+         where ${byPace} and g.kpi_code = ${kpi} and g.month = ${mp.month} and g.goal_set = 'dealer'
+         group by un.id
+      ),
+      x as (
         select u.id, u.name, u.code, u.level_key, p.name as parent, r.m,
-               ${byPace ? sql`${sql.unsafe(value)} / nullif(${goal} * ${mp.share}, 0)` : sql`null::numeric`} as pct,
+               ${byPace ? sql`${sql.unsafe(value)} / nullif(gl.goal * ${mp.share}, 0)` : sql`null::numeric`} as pct,
                ${sql.unsafe(value)} as v
-          from org_units u
+          from units u
           join org_rollup_daily r on r.org_unit_id = u.id and r.biz_date = ${latestIso}
           left join org_units p on p.id = u.parent_id
-         where u.level_key = ${level} and u.path <@ ${current.path}::ltree
+          left join goals gl on gl.id = u.id
       )
       select x.id, x.name, x.code, x.level_key, x.parent, x.m, x.pct,
              rank() over (order by ${byPace ? sql`x.pct` : sql`x.v`} desc nulls last)::int as rank, count(*) over ()::int as total

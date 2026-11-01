@@ -2,7 +2,7 @@
 
 A sales dashboard web app for Cricket Wireless dealers, built to work for 4 stores or 1,000+.
 
-**Status:** Steps 1–5 of version 1 are done: database, sample data, daily upload with checks, screens, settings, and logins with roles.
+**Status:** Version 1 is complete (steps 1–6): database, sample data, daily upload with checks, screens, settings, logins with roles, and a speed test at 1,000 stores ([results](docs/SPEED.md)).
 All names and numbers in this project are made up.
 
 ## What's here
